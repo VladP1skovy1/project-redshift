@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WwiseDocument Type="WorkUnit" ID="{13654D08-5A7C-4668-8A7B-7D383B66D58F}" SchemaVersion="133" RootDocumentID="{58E78E05-E98E-4049-8F70-9351DB8773C8}" ParentDocumentID="{58E78E05-E98E-4049-8F70-9351DB8773C8}">
+	<Containers>
+		<WorkUnit Name="Locomotion" ID="{13654D08-5A7C-4668-8A7B-7D383B66D58F}" OwnerID="{58E78E05-E98E-4049-8F70-9351DB8773C8}" PersistMode="Nested">
+			<ChildrenList>
+				<Folder Name="Jump" ID="{D19F1680-D48D-416E-812E-33F53890A953}" ShortID="785134752">
+					<ChildrenList>
+						<RandomSequenceContainer Name="Jump_Container" ID="{10119E8B-63E0-4888-A90C-B1626C63388E}" ShortID="677944339">
+							<ReferenceList>
+								<Reference Name="Conversion">
+									<ObjectRef Name="Default Conversion Settings" ID="{6D1B890C-9826-4384-BF07-C15223E9FB56}" WorkUnitID="{5F19B62F-FDE2-4273-B8E5-BDE18E1DD198}"/>
+								</Reference>
+								<Reference Name="OutputBus">
+									<ObjectRef Name="Main Audio Bus" ID="{1514A4D8-1DA6-412A-A17E-75CA0C2149F3}" WorkUnitID="{BEA58F50-D5BC-4A8E-8B3E-C94A638E8BE6}"/>
+								</Reference>
+							</ReferenceList>
+							<ChildrenList>
+								<Sound Name="Jump" ID="{1A9E9199-71AF-40B1-94A7-9D3CAF298A4A}" ShortID="860851943">
+									<ReferenceList>
+										<Reference Name="Conversion">
+											<ObjectRef Name="Default Conversion Settings" ID="{6D1B890C-9826-4384-BF07-C15223E9FB56}" WorkUnitID="{5F19B62F-FDE2-4273-B8E5-BDE18E1DD198}"/>
+										</Reference>
+										<Reference Name="OutputBus">
+											<ObjectRef Name="Main Audio Bus" ID="{1514A4D8-1DA6-412A-A17E-75CA0C2149F3}" WorkUnitID="{BEA58F50-D5BC-4A8E-8B3E-C94A638E8BE6}"/>
+										</Reference>
+									</ReferenceList>
+									<ChildrenList>
+										<AudioFileSource Name="real-wet-fart" ID="{3F90D384-80A5-4ADE-9467-43CF3AE99030}">
+											<PropertyList>
+												<Property Name="LoopBegin" Type="Real64" Value="0.26174"/>
+												<Property Name="OverrideWavLoop" Type="bool" Value="True"/>
+												<Property Name="TrimBegin" Type="Real64" Value="0.26174"/>
+											</PropertyList>
+											<Language>SFX</Language>
+											<AudioFile>real-wet-fart.wav</AudioFile>
+											<MediaIDList>
+												<MediaID ID="1048744929"/>
+											</MediaIDList>
+										</AudioFileSource>
+									</ChildrenList>
+									<ActiveSourceList>
+										<ActiveSource Name="real-wet-fart" ID="{3F90D384-80A5-4ADE-9467-43CF3AE99030}" Platform="Linked"/>
+									</ActiveSourceList>
+								</Sound>
+							</ChildrenList>
+						</RandomSequenceContainer>
+						<RandomSequenceContainer Name="New Random Container" ID="{7500ABCC-E2C8-4D87-A81F-2C2DECC1A326}" ShortID="364971687">
+							<ReferenceList>
+								<Reference Name="Conversion">
+									<ObjectRef Name="Default Conversion Settings" ID="{6D1B890C-9826-4384-BF07-C15223E9FB56}" WorkUnitID="{5F19B62F-FDE2-4273-B8E5-BDE18E1DD198}"/>
+								</Reference>
+								<Reference Name="OutputBus">
+									<ObjectRef Name="Main Audio Bus" ID="{1514A4D8-1DA6-412A-A17E-75CA0C2149F3}" WorkUnitID="{BEA58F50-D5BC-4A8E-8B3E-C94A638E8BE6}"/>
+								</Reference>
+							</ReferenceList>
+						</RandomSequenceContainer>
+					</ChildrenList>
+				</Folder>
+			</ChildrenList>
+		</WorkUnit>
+	</Containers>
+</WwiseDocument>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WwiseDocument Type="WorkUnit" ID="{48BAE1FC-DF45-4D82-AEF2-724FC6B7BAF4}" SchemaVersion="133">
+	<SoundcasterSessions>
+		<WorkUnit Name="Default Work Unit" ID="{48BAE1FC-DF45-4D82-AEF2-724FC6B7BAF4}" PersistMode="Standalone">
+			<ChildrenList>
+				<SoundcasterSession Name="New Soundcaster Session" ID="{8555C81A-98BA-4C6D-9DBE-CE828CCBF4ED}"/>
+			</ChildrenList>
+		</WorkUnit>
+	</SoundcasterSessions>
+</WwiseDocument>
