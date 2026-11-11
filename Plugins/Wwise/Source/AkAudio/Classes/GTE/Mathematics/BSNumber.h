@@ -1257,8 +1257,11 @@ namespace std
     }
 
     // Type trait that says BSNumber is a signed type.
+    // Clang 20+ forbids specializing std::is_signed (-Winvalid-specialization); unused by Wwise.
+#if !defined(__clang__)
     template <typename UInteger>
     struct is_signed<WwiseGTE::BSNumber<UInteger>> : true_type {};
+#endif
 }
 
 namespace WwiseGTE
