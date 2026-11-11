@@ -1,0 +1,48 @@
+{
+ "SoundBanksInfo": {
+  "Platform": "Mac",
+  "BasePlatform": "Mac",
+  "SchemaVersion": "16",
+  "SoundBankVersion": "172",
+  "SoundBanks": [
+   {
+    "Id": "1879693258",
+    "Type": "Event",
+    "GUID": "{F2EA7C41-EA27-4AA4-962F-0A6FFBAE93D0}",
+    "Language": "SFX",
+    "Hash": "{9DDDC500-33E0-675E-76C7-4B81DFFF8067}",
+    "ObjectPath": "Play_Jump_Container",
+    "ShortName": "Play_Jump_Container",
+    "Path": "Event/Play_Jump_Container.bnk",
+    "Media": [
+     {
+      "Id": "1048744929",
+      "Language": "SFX",
+      "Streaming": "false",
+      "Location": "Loose",
+      "ShortName": "real-wet-fart.wav",
+      "Path": "Media/1048744929.wem",
+      "CachePath": "85/{858C44C4-7180-34D1-2D37-76BE9FA16F32}.wem"
+     }
+    ],
+    "Events": [
+     {
+      "Id": "1879693258",
+      "Name": "Play_Jump_Container",
+      "ObjectPath": "\\Events\\Default Work Unit\\Play_Jump_Container",
+      "GUID": "{F2EA7C41-EA27-4AA4-962F-0A6FFBAE93D0}",
+      "DurationType": "OneShot",
+      "DurationMin": "0.7489403",
+      "DurationMax": "0.7489403",
+      "MediaRefs": [
+       {
+        "Id": "1048744929"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "FileHash": "{B1D101D6-A54E-CD37-C33A-C5E858A81588}"
+ }
+}
