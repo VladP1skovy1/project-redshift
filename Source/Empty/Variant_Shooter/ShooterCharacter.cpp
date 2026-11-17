@@ -16,6 +16,8 @@
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Engine/Engine.h"
+#include "Components/LightComponent.h"
+#include "UObject/UObjectIterator.h"
 #include "HAL/IConsoleManager.h"
 
 // type "Shooter.ADSDebug 1" in the console to see aim down sights debug info
@@ -48,6 +50,9 @@ void AShooterCharacter::BeginPlay()
 	DefaultArmsRelativeLocation = GetFirstPersonMesh()->GetRelativeLocation();
 	DefaultArmsRelativeRotation = GetFirstPersonMesh()->GetRelativeRotation();
 	DefaultCameraRelativeLocation = GetFirstPersonCameraComponent()->GetRelativeLocation();
+
+	// keep muzzle flashes off the first person arms
+	SetupFirstPersonLightingChannels();
 
 	// apply the weapon offsets after the arms animation is evaluated each frame
 	ArmsBonesFinalizedHandle = GetFirstPersonMesh()->RegisterOnBoneTransformsFinalizedDelegate(
@@ -105,7 +110,128 @@ void AShooterCharacter::Tick(float DeltaSeconds)
 	AimDownSightsAlpha = FMath::FInterpTo(AimDownSightsAlpha, bIsAimingDownSights ? 1.0f : 0.0f, DeltaSeconds, AimDownSightsInterpSpeed);
 	ReloadAlpha = FMath::FInterpTo(ReloadAlpha, bReloading ? 1.0f : 0.0f, DeltaSeconds, ReloadDipInterpSpeed);
 
+	// camera recoil
+	UpdateRecoil(DeltaSeconds);
+
+	// visual weapon kick springs back
+	if (IsValid(CurrentWeapon))
+	{
+		WeaponKickAlpha = FMath::FInterpTo(WeaponKickAlpha, 0.0f, DeltaSeconds, CurrentWeapon->GetWeaponKickReturnSpeed());
+	}
+	else
+	{
+		WeaponKickAlpha = 0.0f;
+	}
+
 	// the offsets themselves are applied in OnArmsBoneTransformsFinalized
+}
+
+void AShooterCharacter::SetupFirstPersonLightingChannels()
+{
+	// the arms only receive channel 1
+	GetFirstPersonMesh()->SetLightingChannels(false, true, false);
+
+	// every regular light in this world that lights channel 0 also lights channel 1, so the arms stay lit as before.
+	// Muzzle flashes are skipped: they stay on channel 0 only
+	UWorld* World = GetWorld();
+
+	for (TObjectIterator<ULightComponent> It; It; ++It)
+	{
+		ULightComponent* Light = *It;
+
+		if (!IsValid(Light) || Light->IsTemplate() || Light->GetWorld() != World)
+		{
+			continue;
+		}
+
+		if (Light->GetOwner() && Light->GetOwner()->IsA<AShooterWeapon>())
+		{
+			continue;
+		}
+
+		if (Light->LightingChannels.bChannel0 && !Light->LightingChannels.bChannel1)
+		{
+			Light->SetLightingChannels(true, true, Light->LightingChannels.bChannel2);
+		}
+	}
+}
+
+void AShooterCharacter::ApplyWeaponRecoil(const FRotator& Kick, AShooterWeapon* Weapon)
+{
+	PendingRecoil += Kick;
+	LastRecoilTime = GetWorld()->GetTimeSeconds();
+
+	// visual kick in the hands, scaled the same way as the camera kick (ADS multiplier)
+	if (Weapon)
+	{
+		const float Multiplier = IsAimingDownSights() ? Weapon->GetAimDownSightsRecoilMultiplier() : 1.0f;
+		WeaponKickOffset = Weapon->GetWeaponKickOffset() * Multiplier;
+		WeaponKickAlpha = 1.0f;
+	}
+}
+
+void AShooterCharacter::UpdateRecoil(float DeltaSeconds)
+{
+	if (!Controller || !IsValid(CurrentWeapon))
+	{
+		PendingRecoil = FRotator::ZeroRotator;
+		RecoverableRecoil = FRotator::ZeroRotator;
+		bRecoilPitchTracked = false;
+		return;
+	}
+
+	FRotator ControlRot = GetControlRotation();
+	const float CurrentPitch = FRotator::NormalizeAxis(ControlRot.Pitch);
+
+	// if the player pulled the mouse down since last frame, that counters the recoil:
+	// the camera should not "recover" past where the player put it
+	if (bRecoilPitchTracked)
+	{
+		const float PlayerDelta = FMath::FindDeltaAngleDegrees(LastRecoilControlPitch, CurrentPitch);
+
+		if (PlayerDelta < 0.0f && RecoverableRecoil.Pitch > 0.0f)
+		{
+			RecoverableRecoil.Pitch = FMath::Max(0.0f, RecoverableRecoil.Pitch + PlayerDelta);
+		}
+	}
+
+	FRotator Delta = FRotator::ZeroRotator;
+
+	if (!PendingRecoil.IsNearlyZero(0.001f))
+	{
+		// kick: apply part of the pending recoil this frame
+		const float Alpha = FMath::Clamp(DeltaSeconds * CurrentWeapon->GetRecoilKickSpeed(), 0.0f, 1.0f);
+		const FRotator Step = PendingRecoil * Alpha;
+
+		PendingRecoil -= Step;
+		Delta += Step;
+
+		RecoverableRecoil += Step * CurrentWeapon->GetRecoilRecoveryFraction();
+	}
+	else if (GetWorld()->GetTimeSeconds() - LastRecoilTime > CurrentWeapon->GetRecoilRecoveryDelay() && !RecoverableRecoil.IsNearlyZero(0.001f))
+	{
+		// recovery: drift back towards where we were aiming
+		const float MaxStep = CurrentWeapon->GetRecoilRecoverySpeed() * DeltaSeconds;
+
+		const float PitchStep = FMath::Clamp(RecoverableRecoil.Pitch, -MaxStep, MaxStep);
+		const float YawStep = FMath::Clamp(RecoverableRecoil.Yaw, -MaxStep, MaxStep);
+
+		RecoverableRecoil.Pitch -= PitchStep;
+		RecoverableRecoil.Yaw -= YawStep;
+
+		Delta.Pitch -= PitchStep;
+		Delta.Yaw -= YawStep;
+	}
+
+	if (!Delta.IsNearlyZero(0.0001f))
+	{
+		ControlRot.Pitch = FMath::Clamp(CurrentPitch + Delta.Pitch, -89.0f, 89.0f);
+		ControlRot.Yaw += Delta.Yaw;
+		Controller->SetControlRotation(ControlRot);
+	}
+
+	LastRecoilControlPitch = FRotator::NormalizeAxis(Controller->GetControlRotation().Pitch);
+	bRecoilPitchTracked = true;
 }
 
 void AShooterCharacter::OnArmsBoneTransformsFinalized()
@@ -195,6 +321,12 @@ void AShooterCharacter::UpdateFirstPersonWeaponOffset()
 			}
 
 			Offset += Correction * AimDownSightsAlpha;
+		}
+
+		// recoil: visual kick back/up in the hands
+		if (WeaponKickAlpha > KINDA_SMALL_NUMBER)
+		{
+			Offset += (Forward * WeaponKickOffset.X + Right * WeaponKickOffset.Y + Up * WeaponKickOffset.Z) * WeaponKickAlpha;
 		}
 
 		// reload: dip the weapon down
