@@ -17,6 +17,7 @@
 #include "Animation/AnimMontage.h"
 #include "Engine/Engine.h"
 #include "Components/LightComponent.h"
+#include "InputActionValue.h"
 #include "UObject/UObjectIterator.h"
 #include "HAL/IConsoleManager.h"
 
@@ -53,6 +54,31 @@ void AShooterCharacter::BeginPlay()
 
 	// keep muzzle flashes off the first person arms
 	SetupFirstPersonLightingChannels();
+
+	// remember the empty-handed AnimBPs so we can go back to them when the weapon is put away
+	if (!UnarmedFirstPersonAnimClass)
+	{
+		UnarmedFirstPersonAnimClass = GetFirstPersonMesh()->GetAnimClass();
+	}
+
+	if (!UnarmedThirdPersonAnimClass)
+	{
+		UnarmedThirdPersonAnimClass = GetMesh()->GetAnimClass();
+	}
+
+	// give the starting weapons and hold the first one (lowest slot)
+	for (const TSubclassOf<AShooterWeapon>& WeaponClass : DefaultWeapons)
+	{
+		if (WeaponClass)
+		{
+			AddWeaponClass(WeaponClass);
+		}
+	}
+
+	if (OwnedWeapons.Num() > 0)
+	{
+		EquipWeapon(OwnedWeapons[0]);
+	}
 
 	// apply the weapon offsets after the arms animation is evaluated each frame
 	ArmsBonesFinalizedHandle = GetFirstPersonMesh()->RegisterOnBoneTransformsFinalizedDelegate(
@@ -261,6 +287,12 @@ void AShooterCharacter::UpdateFirstPersonWeaponOffset()
 	FVector Offset = FVector::ZeroVector;
 	bool bRotated = false;
 
+	// let the weapon pose itself relative to the view first (melee swing arc), the offsets below measure the result
+	if (IsValid(CurrentWeapon))
+	{
+		CurrentWeapon->UpdateProceduralPose(CameraBase, ViewRotation);
+	}
+
 
 	if (IsValid(CurrentWeapon))
 	{
@@ -321,6 +353,24 @@ void AShooterCharacter::UpdateFirstPersonWeaponOffset()
 			}
 
 			Offset += Correction * AimDownSightsAlpha;
+		}
+
+		// melee strike: pull the tip of the item into the crosshair (same idea as the ADS sight alignment)
+		const float StrikeAimAlpha = CurrentWeapon->GetStrikeAimAlpha();
+		FVector TipLocation;
+
+		if (StrikeAimAlpha > KINDA_SMALL_NUMBER && CurrentWeapon->GetStrikeTipLocation(TipLocation))
+		{
+			const FVector ToTip = TipLocation - CameraBase;
+			Offset -= (FVector::DotProduct(ToTip, Right) * Right + FVector::DotProduct(ToTip, Up) * Up) * StrikeAimAlpha;
+		}
+
+		// weapon specific procedural motion (melee swing)
+		const FVector WeaponOffset = CurrentWeapon->GetProceduralViewOffset();
+
+		if (!WeaponOffset.IsNearlyZero())
+		{
+			Offset += Forward * WeaponOffset.X + Right * WeaponOffset.Y + Up * WeaponOffset.Z;
 		}
 
 		// recoil: visual kick back/up in the hands
@@ -391,6 +441,27 @@ void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 
 		// Reload
 		EnhancedInputComponent->BindAction(ReloadAction, ETriggerEvent::Started, this, &AShooterCharacter::DoReload);
+
+		// Mouse wheel weapon switching
+		if (CycleWeaponAction)
+		{
+			EnhancedInputComponent->BindAction(CycleWeaponAction, ETriggerEvent::Triggered, this, &AShooterCharacter::CycleWeaponInput);
+		}
+
+		// Put away / take out
+		if (HolsterAction)
+		{
+			EnhancedInputComponent->BindAction(HolsterAction, ETriggerEvent::Started, this, &AShooterCharacter::DoToggleHolster);
+		}
+
+		// Number keys
+		for (int32 Index = 0; Index < WeaponSlotActions.Num(); ++Index)
+		{
+			if (WeaponSlotActions[Index])
+			{
+				EnhancedInputComponent->BindAction(WeaponSlotActions[Index], ETriggerEvent::Started, this, &AShooterCharacter::DoSelectWeaponSlot, Index + 1);
+			}
+		}
 	}
 
 }
@@ -474,31 +545,204 @@ void AShooterCharacter::DoStopFiring()
 
 void AShooterCharacter::DoSwitchWeapon()
 {
-	// ensure we have at least two weapons two switch between
-	if (OwnedWeapons.Num() > 1 && !IsDead())
+	// the original "switch weapon" key just goes to the next weapon
+	DoCycleWeapon(1.0f);
+}
+
+void AShooterCharacter::CycleWeaponInput(const FInputActionValue& Value)
+{
+	const float Direction = Value.Get<float>();
+
+	if (!FMath::IsNearlyZero(Direction))
 	{
-		// deactivate the old weapon
-		CurrentWeapon->DeactivateWeapon();
+		// wheel up = previous, wheel down = next (like CS)
+		DoCycleWeapon(-Direction);
+	}
+}
 
-		// find the index of the current weapon in the owned list
-		int32 WeaponIndex = OwnedWeapons.Find(CurrentWeapon);
+void AShooterCharacter::DoCycleWeapon(float Direction)
+{
+	if (OwnedWeapons.Num() == 0 || IsDead())
+	{
+		return;
+	}
 
-		// is this the last weapon?
-		if (WeaponIndex == OwnedWeapons.Num() - 1)
+	// hands are empty: take the last weapon back out
+	if (!IsValid(CurrentWeapon))
+	{
+		EquipWeapon(LastEquippedWeapon.IsValid() ? LastEquippedWeapon.Get() : OwnedWeapons[0]);
+		return;
+	}
+
+	if (OwnedWeapons.Num() < 2)
+	{
+		return;
+	}
+
+	int32 Index = OwnedWeapons.Find(CurrentWeapon);
+	const int32 Step = Direction > 0.0f ? 1 : -1;
+
+	Index = (Index + Step + OwnedWeapons.Num()) % OwnedWeapons.Num();
+
+	EquipWeapon(OwnedWeapons[Index]);
+}
+
+void AShooterCharacter::DoSelectWeaponSlot(int32 Slot)
+{
+	if (IsDead())
+	{
+		return;
+	}
+
+	// all owned weapons in this slot, in inventory order
+	TArray<AShooterWeapon*> SlotWeapons;
+
+	for (AShooterWeapon* Weapon : OwnedWeapons)
+	{
+		if (IsValid(Weapon) && Weapon->GetInventorySlot() == Slot)
 		{
-			// loop back to the beginning of the array
-			WeaponIndex = 0;
+			SlotWeapons.Add(Weapon);
 		}
-		else {
-			// select the next weapon index
-			++WeaponIndex;
+	}
+
+	if (SlotWeapons.Num() == 0)
+	{
+		return;
+	}
+
+	const float Now = GetWorld()->GetTimeSeconds();
+	const int32 CurrentIndex = SlotWeapons.Find(CurrentWeapon);
+	const bool bHoldingThisSlot = CurrentIndex != INDEX_NONE;
+
+	// double tap of the key of the weapon already in hands: put it away
+	const bool bDoubleTap = bHoldingThisSlot && bLastSlotPressWasHolding && LastSlotPressed == Slot && (Now - LastSlotPressTime) <= DoubleTapTime;
+
+	LastSlotPressed = Slot;
+	LastSlotPressTime = Now;
+	bLastSlotPressWasHolding = bHoldingThisSlot;
+
+	if (bDoubleTap)
+	{
+		HolsterWeapon();
+		LastSlotPressed = 0;
+		return;
+	}
+
+	// already holding something from this slot?
+	if (bHoldingThisSlot)
+	{
+		if (SlotWeapons.Num() > 1)
+		{
+			// several weapons in this slot: go to the next one (double tap puts it away)
+			EquipWeapon(SlotWeapons[(CurrentIndex + 1) % SlotWeapons.Num()]);
+		}
+		else
+		{
+			// only one weapon in this slot: pressing its key again puts it away
+			HolsterWeapon();
+			LastSlotPressed = 0;
 		}
 
-		// set the new weapon as current
-		CurrentWeapon = OwnedWeapons[WeaponIndex];
+		return;
+	}
 
-		// activate the new weapon
-		CurrentWeapon->ActivateWeapon(PlayerTag);
+	// hands empty or holding another slot: take out the last used weapon of this slot if we had one
+	if (LastEquippedWeapon.IsValid() && SlotWeapons.Contains(LastEquippedWeapon.Get()))
+	{
+		EquipWeapon(LastEquippedWeapon.Get());
+	}
+	else
+	{
+		EquipWeapon(SlotWeapons[0]);
+	}
+}
+
+void AShooterCharacter::EquipWeapon(AShooterWeapon* Weapon)
+{
+	if (!IsValid(Weapon) || Weapon == CurrentWeapon || IsDead())
+	{
+		return;
+	}
+
+	if (IsValid(CurrentWeapon))
+	{
+		CurrentWeapon->DeactivateWeapon();
+	}
+
+	CurrentWeapon = Weapon;
+	LastEquippedWeapon = Weapon;
+	CurrentWeapon->ActivateWeapon(PlayerTag);
+}
+
+void AShooterCharacter::DoToggleHolster()
+{
+	if (IsDead())
+	{
+		return;
+	}
+
+	if (IsValid(CurrentWeapon))
+	{
+		HolsterWeapon();
+	}
+	else if (OwnedWeapons.Num() > 0)
+	{
+		EquipWeapon(LastEquippedWeapon.IsValid() ? LastEquippedWeapon.Get() : OwnedWeapons[0]);
+	}
+}
+
+void AShooterCharacter::HolsterWeapon()
+{
+	if (!IsValid(CurrentWeapon))
+	{
+		return;
+	}
+
+	LastEquippedWeapon = CurrentWeapon.Get();
+
+	AShooterWeapon* OldWeapon = CurrentWeapon;
+	CurrentWeapon = nullptr;
+	OldWeapon->DeactivateWeapon();
+
+	// empty hands animation
+	if (UnarmedFirstPersonAnimClass)
+	{
+		GetFirstPersonMesh()->SetAnimInstanceClass(UnarmedFirstPersonAnimClass);
+	}
+
+	if (UnarmedThirdPersonAnimClass)
+	{
+		GetMesh()->SetAnimInstanceClass(UnarmedThirdPersonAnimClass);
+	}
+
+	// hide the ammo counter
+	OnBulletCountUpdated.Broadcast(0, 0);
+}
+
+void AShooterCharacter::PlayWeaponMontage(UAnimMontage* Montage, bool bFirstPerson, bool bThirdPerson)
+{
+	if (!Montage)
+	{
+		return;
+	}
+
+	if (bFirstPerson)
+	{
+		if (UAnimInstance* FPAnim = GetFirstPersonMesh()->GetAnimInstance())
+		{
+			FPAnim->Montage_Play(Montage);
+		}
+	}
+
+	if (bThirdPerson)
+	{
+		if (UAnimInstance* TPAnim = GetMesh()->GetAnimInstance())
+		{
+			// attack animations often carry root motion, which would pin the character in place.
+			// Ignore it so we can keep walking while swinging
+			TPAnim->SetRootMotionMode(ERootMotionMode::IgnoreRootMotion);
+			TPAnim->Montage_Play(Montage);
+		}
 	}
 }
 
@@ -623,8 +867,12 @@ void AShooterCharacter::AddWeaponClass(const TSubclassOf<AShooterWeapon>& Weapon
 
 		if (AddedWeapon)
 		{
-			// add the weapon to the owned list
+			// add the weapon to the owned list, keeping it sorted by number slot (1, 2, 3...)
 			OwnedWeapons.Add(AddedWeapon);
+			OwnedWeapons.StableSort([](const AShooterWeapon& A, const AShooterWeapon& B)
+			{
+				return A.GetInventorySlot() < B.GetInventorySlot();
+			});
 
 			// if we have an existing weapon, deactivate it
 			if (CurrentWeapon)
@@ -644,9 +892,16 @@ void AShooterCharacter::OnWeaponActivated(AShooterWeapon* Weapon)
 	// update the bullet counter
 	OnBulletCountUpdated.Broadcast(Weapon->GetMagazineSize(), Weapon->GetBulletCount());
 
-	// set the character mesh AnimInstances
-	GetFirstPersonMesh()->SetAnimInstanceClass(Weapon->GetFirstPersonAnimInstanceClass());
-	GetMesh()->SetAnimInstanceClass(Weapon->GetThirdPersonAnimInstanceClass());
+	// set the character mesh AnimInstances (keep the current ones if the weapon doesn't specify any)
+	if (Weapon->GetFirstPersonAnimInstanceClass())
+	{
+		GetFirstPersonMesh()->SetAnimInstanceClass(Weapon->GetFirstPersonAnimInstanceClass());
+	}
+
+	if (Weapon->GetThirdPersonAnimInstanceClass())
+	{
+		GetMesh()->SetAnimInstanceClass(Weapon->GetThirdPersonAnimInstanceClass());
+	}
 }
 
 void AShooterCharacter::OnWeaponDeactivated(AShooterWeapon* Weapon)
