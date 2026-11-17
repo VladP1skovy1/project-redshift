@@ -77,6 +77,32 @@ protected:
 	FVector DefaultArmsRelativeLocation = FVector::ZeroVector;
 	FRotator DefaultArmsRelativeRotation = FRotator::ZeroRotator;
 
+	// --- recoil state ---
+
+	/** Camera kick still waiting to be applied (Pitch up, Yaw right) */
+	FRotator PendingRecoil = FRotator::ZeroRotator;
+
+	/** Part of the applied kick the camera will give back on its own */
+	FRotator RecoverableRecoil = FRotator::ZeroRotator;
+
+	/** Time of the last recoil kick */
+	float LastRecoilTime = -1000.0f;
+
+	/** Control pitch at the end of the last recoil update, used to detect the player pulling down */
+	float LastRecoilControlPitch = 0.0f;
+	bool bRecoilPitchTracked = false;
+
+	/** Current visual weapon kick (view space offset) and its 0..1 strength */
+	FVector WeaponKickOffset = FVector::ZeroVector;
+	float WeaponKickAlpha = 0.0f;
+
+	/** Moves the first person arms to lighting channel 1 and makes the level's lights also light channel 1,
+	 *  so muzzle flashes (channel 0 only) light the world but not the hands */
+	void SetupFirstPersonLightingChannels();
+
+	/** Applies pending camera recoil and recovery */
+	void UpdateRecoil(float DeltaSeconds);
+
 	/** Handle for the arms "bone transforms finalized" callback */
 	FDelegateHandle ArmsBonesFinalizedHandle;
 	FVector DefaultCameraRelativeLocation = FVector::ZeroVector;
@@ -220,6 +246,9 @@ public:
 
 	/** Applies weapon recoil to the owner */
 	virtual void AddWeaponRecoil(float Recoil) override;
+
+	/** Applies a full pattern recoil kick */
+	virtual void ApplyWeaponRecoil(const FRotator& Kick, AShooterWeapon* Weapon) override;
 
 	/** Updates the weapon's HUD with the current ammo count */
 	virtual void UpdateWeaponHUD(int32 CurrentAmmo, int32 MagazineSize) override;

@@ -11,6 +11,7 @@
 #include "Animation/AnimInstance.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/Pawn.h"
+#include "Components/PointLightComponent.h"
 
 AShooterWeapon::AShooterWeapon()
 {
@@ -34,6 +35,21 @@ AShooterWeapon::AShooterWeapon()
 	ThirdPersonMesh->SetCollisionProfileName(FName("NoCollision"));
 	ThirdPersonMesh->SetFirstPersonPrimitiveType(EFirstPersonPrimitiveType::WorldSpaceRepresentation);
 	ThirdPersonMesh->bOwnerNoSee = true;
+
+	// create the muzzle flash light (attached to the muzzle socket on BeginPlay)
+	MuzzleFlashLight = CreateDefaultSubobject<UPointLightComponent>(TEXT("Muzzle Flash Light"));
+	MuzzleFlashLight->SetupAttachment(FirstPersonMesh);
+	MuzzleFlashLight->SetVisibility(false);
+	MuzzleFlashLight->SetCastShadows(false);
+	MuzzleFlashLight->SetIntensity(0.0f);
+	MuzzleFlashLight->SetIntensityUnits(ELightUnits::Unitless);
+
+	// first person meshes can't cast shadows, so the flash would shine through the gun onto the hands.
+	// The flash only uses lighting channel 0 (the world); the first person weapon mesh uses channel 1 instead
+	MuzzleFlashLight->LightingChannels.bChannel0 = true;
+	MuzzleFlashLight->LightingChannels.bChannel1 = false;
+	FirstPersonMesh->LightingChannels.bChannel0 = false;
+	FirstPersonMesh->LightingChannels.bChannel1 = true;
 }
 
 void AShooterWeapon::BeginPlay()
@@ -53,15 +69,25 @@ void AShooterWeapon::BeginPlay()
 
 	// attach the meshes to the owner
 	WeaponOwner->AttachWeaponMeshes(this);
+
+	// put the muzzle flash light on the muzzle
+	if (FirstPersonMesh->DoesSocketExist(MuzzleSocketName))
+	{
+		MuzzleFlashLight->AttachToComponent(FirstPersonMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, MuzzleSocketName);
+	}
+
+	MuzzleFlashLight->SetLightColor(MuzzleFlashColor);
+	MuzzleFlashLight->SetAttenuationRadius(MuzzleFlashRadius);
 }
 
 void AShooterWeapon::EndPlay(EEndPlayReason::Type EndPlayReason)
 {
 	Super::EndPlay(EndPlayReason);
 
-	// clear the refire and reload timers
+	// clear the refire, reload and muzzle flash timers
 	GetWorld()->GetTimerManager().ClearTimer(RefireTimer);
 	GetWorld()->GetTimerManager().ClearTimer(ReloadTimer);
+	GetWorld()->GetTimerManager().ClearTimer(MuzzleFlashTimer);
 }
 
 void AShooterWeapon::OnOwnerDestroyed(AActor* DestroyedActor)
@@ -87,6 +113,7 @@ void AShooterWeapon::DeactivateWeapon()
 	// ensure we're no longer firing or reloading this weapon while deactivated
 	StopFiring();
 	CancelReload();
+	HideMuzzleFlash();
 
 	// hide the weapon
 	SetActorHiddenInGame(true);
@@ -151,7 +178,11 @@ void AShooterWeapon::Fire()
 	}
 	
 	// fire a projectile at the target
-	FireProjectile(WeaponOwner->GetWeaponTargetLocation());
+	const FVector TargetLocation = WeaponOwner->GetWeaponTargetLocation();
+	FireProjectile(TargetLocation);
+
+	// flash
+	PlayMuzzleFlash(TargetLocation);
 
 	// update the time of our last shot
 	TimeOfLastShot = GetWorld()->GetTimeSeconds();
@@ -201,8 +232,8 @@ void AShooterWeapon::FireProjectile(const FVector& TargetLocation)
 	// play the firing montage
 	WeaponOwner->PlayFiringMontage(FiringMontage);
 
-	// add recoil (reduced while aiming down sights)
-	WeaponOwner->AddWeaponRecoil(FiringRecoil * (IsOwnerAiming() ? AimDownSightsRecoilMultiplier : 1.0f));
+	// add recoil (pattern based, reduced while aiming down sights)
+	ApplyRecoil();
 
 	// consume bullets
 	--CurrentBullets;
@@ -214,6 +245,71 @@ void AShooterWeapon::FireProjectile(const FVector& TargetLocation)
 	if (CurrentBullets <= 0 && bAutoReloadWhenEmpty)
 	{
 		StartReload();
+	}
+}
+
+void AShooterWeapon::ApplyRecoil()
+{
+	const float Now = GetWorld()->GetTimeSeconds();
+
+	// start the pattern over if we haven't been shooting for a while
+	if (Now - TimeOfLastRecoil > RecoilPatternResetTime)
+	{
+		RecoilShotIndex = 0;
+	}
+
+	FVector2D Kick;
+
+	if (RecoilPattern.Num() > 0)
+	{
+		// fixed, learnable pattern. Once it runs out, the last entry repeats
+		Kick = RecoilPattern[FMath::Min(RecoilShotIndex, RecoilPattern.Num() - 1)];
+	}
+	else
+	{
+		Kick = FVector2D(FMath::FRandRange(-RecoilYawRandom, RecoilYawRandom), RecoilPitch);
+	}
+
+	++RecoilShotIndex;
+	TimeOfLastRecoil = Now;
+
+	const float Multiplier = IsOwnerAiming() ? AimDownSightsRecoilMultiplier : 1.0f;
+
+	// FRotator(Pitch, Yaw, Roll)
+	WeaponOwner->ApplyWeaponRecoil(FRotator(Kick.Y * Multiplier, Kick.X * Multiplier, 0.0f), this);
+}
+
+void AShooterWeapon::PlayMuzzleFlash(const FVector& TargetLocation)
+{
+	if (!bMuzzleFlash || !MuzzleFlashLight)
+	{
+		return;
+	}
+
+	// put the light a bit ahead of the muzzle, along the shot direction
+	if (FirstPersonMesh->DoesSocketExist(MuzzleSocketName))
+	{
+		const FVector MuzzleLocation = FirstPersonMesh->GetSocketLocation(MuzzleSocketName);
+		const FVector ToTarget = TargetLocation - MuzzleLocation;
+
+		// don't push the light through a wall we're standing right in front of
+		const float Distance = FMath::Min(MuzzleFlashForwardOffset, ToTarget.Size() * 0.5f);
+
+		MuzzleFlashLight->SetWorldLocation(MuzzleLocation + ToTarget.GetSafeNormal() * Distance);
+	}
+
+	MuzzleFlashLight->SetIntensity(MuzzleFlashIntensity * (IsOwnerAiming() ? MuzzleFlashAimMultiplier : 1.0f));
+	MuzzleFlashLight->SetVisibility(true);
+
+	GetWorld()->GetTimerManager().SetTimer(MuzzleFlashTimer, this, &AShooterWeapon::HideMuzzleFlash, MuzzleFlashDuration, false);
+}
+
+void AShooterWeapon::HideMuzzleFlash()
+{
+	if (MuzzleFlashLight)
+	{
+		MuzzleFlashLight->SetVisibility(false);
+		MuzzleFlashLight->SetIntensity(0.0f);
 	}
 }
 
