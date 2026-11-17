@@ -13,6 +13,13 @@
 #include "Camera/CameraComponent.h"
 #include "TimerManager.h"
 #include "ShooterGameMode.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
+#include "Engine/Engine.h"
+#include "HAL/IConsoleManager.h"
+
+// type "Shooter.ADSDebug 1" in the console to see aim down sights debug info
+static TAutoConsoleVariable<int32> CVarShooterADSDebug(TEXT("Shooter.ADSDebug"), 0, TEXT("Show aim down sights / reload offset debug info"));
 
 AShooterCharacter::AShooterCharacter()
 {
@@ -21,6 +28,9 @@ AShooterCharacter::AShooterCharacter()
 
 	// configure movement
 	GetCharacterMovement()->RotationRate = FRotator(0.0f, 600.0f, 0.0f);
+
+	// tick is used for the aim down sights zoom
+	PrimaryActorTick.bCanEverTick = true;
 }
 
 void AShooterCharacter::BeginPlay()
@@ -29,6 +39,19 @@ void AShooterCharacter::BeginPlay()
 
 	// reset HP to max
 	CurrentHP = MaxHP;
+
+	// cache the non-aiming camera FOV and walk speed
+	DefaultFieldOfView = GetFirstPersonCameraComponent()->FieldOfView;
+	DefaultMaxWalkSpeed = GetCharacterMovement()->MaxWalkSpeed;
+
+	// cache the default arms and camera placement for the procedural weapon offsets
+	DefaultArmsRelativeLocation = GetFirstPersonMesh()->GetRelativeLocation();
+	DefaultArmsRelativeRotation = GetFirstPersonMesh()->GetRelativeRotation();
+	DefaultCameraRelativeLocation = GetFirstPersonCameraComponent()->GetRelativeLocation();
+
+	// apply the weapon offsets after the arms animation is evaluated each frame
+	ArmsBonesFinalizedHandle = GetFirstPersonMesh()->RegisterOnBoneTransformsFinalizedDelegate(
+		FOnBoneTransformsFinalizedMultiCast::FDelegate::CreateUObject(this, &AShooterCharacter::OnArmsBoneTransformsFinalized));
 
 	// update the HUD
 	OnDamaged.Broadcast(1.0f);
@@ -40,6 +63,179 @@ void AShooterCharacter::EndPlay(EEndPlayReason::Type EndPlayReason)
 
 	// clear the respawn timer
 	GetWorld()->GetTimerManager().ClearTimer(RespawnTimer);
+
+	// stop listening to the arms animation
+	if (ArmsBonesFinalizedHandle.IsValid() && GetFirstPersonMesh())
+	{
+		GetFirstPersonMesh()->UnregisterOnBoneTransformsFinalizedDelegate(ArmsBonesFinalizedHandle);
+		ArmsBonesFinalizedHandle.Reset();
+	}
+}
+
+void AShooterCharacter::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	// we're aiming if the button is held, the weapon supports it and we're not busy reloading
+	const bool bShouldAim = bWantsToAimDownSights && !IsDead()
+		&& IsValid(CurrentWeapon) && CurrentWeapon->CanAimDownSights() && !CurrentWeapon->IsReloading();
+
+	// update the walk speed when the state changes
+	if (bShouldAim != bIsAimingDownSights)
+	{
+		bIsAimingDownSights = bShouldAim;
+		GetCharacterMovement()->MaxWalkSpeed = DefaultMaxWalkSpeed * (bIsAimingDownSights ? AimDownSightsWalkSpeedMultiplier : 1.0f);
+
+		// let the HUD know (hide / show the crosshair)
+		OnAimDownSightsChanged.Broadcast(bIsAimingDownSights);
+	}
+
+	// smoothly zoom the camera
+	UCameraComponent* Camera = GetFirstPersonCameraComponent();
+	const float TargetFOV = bIsAimingDownSights ? CurrentWeapon->GetAimDownSightsFOV() : DefaultFieldOfView;
+
+	if (!FMath::IsNearlyEqual(Camera->FieldOfView, TargetFOV, 0.01f))
+	{
+		Camera->SetFieldOfView(FMath::FInterpTo(Camera->FieldOfView, TargetFOV, DeltaSeconds, AimDownSightsInterpSpeed));
+	}
+
+	// blend the procedural weapon offsets
+	const bool bReloading = IsValid(CurrentWeapon) && CurrentWeapon->IsReloading();
+
+	AimDownSightsAlpha = FMath::FInterpTo(AimDownSightsAlpha, bIsAimingDownSights ? 1.0f : 0.0f, DeltaSeconds, AimDownSightsInterpSpeed);
+	ReloadAlpha = FMath::FInterpTo(ReloadAlpha, bReloading ? 1.0f : 0.0f, DeltaSeconds, ReloadDipInterpSpeed);
+
+	// the offsets themselves are applied in OnArmsBoneTransformsFinalized
+}
+
+void AShooterCharacter::OnArmsBoneTransformsFinalized()
+{
+	UpdateFirstPersonWeaponOffset();
+}
+
+void AShooterCharacter::UpdateFirstPersonWeaponOffset()
+{
+	USkeletalMeshComponent* Arms = GetFirstPersonMesh();
+	UCameraComponent* Camera = GetFirstPersonCameraComponent();
+
+	// put the arms back to their default placement so we measure from a clean state
+	Arms->SetRelativeLocationAndRotation(DefaultArmsRelativeLocation, DefaultArmsRelativeRotation);
+
+	// where the camera sits without any offset (it's attached to the arms' head socket)
+	const FTransform CameraParentTM = Arms->GetSocketTransform(Camera->GetAttachSocketName());
+	const FVector CameraBase = CameraParentTM.TransformPosition(DefaultCameraRelativeLocation);
+
+	// view axes (the camera uses the control rotation)
+	const FRotator ViewRotation = Controller ? GetControlRotation() : GetActorRotation();
+	const FRotationMatrix ViewMatrix(ViewRotation);
+	const FVector Forward = ViewMatrix.GetUnitAxis(EAxis::X);
+	const FVector Right = ViewMatrix.GetUnitAxis(EAxis::Y);
+	const FVector Up = ViewMatrix.GetUnitAxis(EAxis::Z);
+
+	FVector Offset = FVector::ZeroVector;
+	bool bRotated = false;
+
+
+	if (IsValid(CurrentWeapon))
+	{
+		FTransform SightTM;
+
+		if (AimDownSightsAlpha > KINDA_SMALL_NUMBER && CurrentWeapon->GetSightTransform(SightTM))
+		{
+			const FVector SightLocation = SightTM.GetLocation();
+
+			// aim down sights, step 1 (optional, off by default): small rotation so the line of sight points along the view
+			if (CurrentWeapon->ShouldAlignSightRotation())
+			{
+				FQuat FullAlign = FQuat::Identity;
+				FVector FrontSightLocation;
+
+				// point the line of sight (rear -> front sight) along the view, but only by a few degrees:
+				// the arms mesh is the whole body, big rotations swing the shoulders/head into view
+				if (CurrentWeapon->GetFrontSightLocation(FrontSightLocation))
+				{
+					const FVector SightLine = (FrontSightLocation - SightLocation).GetSafeNormal();
+
+					if (!SightLine.IsNearlyZero())
+					{
+						FullAlign = FQuat::FindBetweenNormals(SightLine, Forward);
+
+						const float MaxAngle = FMath::DegreesToRadians(CurrentWeapon->GetMaxSightAlignAngle());
+						const float Angle = FullAlign.GetAngle();
+
+						if (Angle > MaxAngle && Angle > KINDA_SMALL_NUMBER)
+						{
+							FullAlign = FQuat::Slerp(FQuat::Identity, FullAlign, MaxAngle / Angle);
+						}
+					}
+				}
+
+				FullAlign.Normalize();
+
+				const FQuat Align = FQuat::Slerp(FQuat::Identity, FullAlign, AimDownSightsAlpha);
+
+				const FVector NewArmsLocation = SightLocation + Align.RotateVector(Arms->GetComponentLocation() - SightLocation);
+				const FQuat NewArmsRotation = Align * Arms->GetComponentQuat();
+
+				Arms->SetWorldLocationAndRotation(NewArmsLocation, NewArmsRotation);
+				bRotated = true;
+			}
+
+			// step 2: move the arms so the sight lands on the view axis (= screen center)
+			const FVector ToSight = SightLocation - CameraBase;
+
+			FVector Correction = -(FVector::DotProduct(ToSight, Right) * Right + FVector::DotProduct(ToSight, Up) * Up);
+
+			// optionally bring the weapon closer to the eye
+			const float EyeDistance = CurrentWeapon->GetAimDownSightsEyeDistance();
+
+			if (EyeDistance > 0.0f)
+			{
+				Correction -= (FVector::DotProduct(ToSight, Forward) - EyeDistance) * Forward;
+			}
+
+			Offset += Correction * AimDownSightsAlpha;
+		}
+
+		// reload: dip the weapon down
+		if (ReloadAlpha > KINDA_SMALL_NUMBER)
+		{
+			const FVector& Dip = CurrentWeapon->GetReloadDipOffset();
+			Offset += (Forward * Dip.X + Right * Dip.Y + Up * Dip.Z) * ReloadAlpha;
+		}
+	}
+
+	if (CVarShooterADSDebug.GetValueOnGameThread() > 0 && GEngine)
+	{
+		FVector DebugSight = FVector::ZeroVector;
+		const bool bHasWeapon = IsValid(CurrentWeapon);
+		const bool bHasSightSocket = bHasWeapon && CurrentWeapon->GetFirstPersonMesh()->DoesSocketExist(FName("Sight"));
+		const bool bHasAnyPoint = bHasWeapon && CurrentWeapon->GetSightLocation(DebugSight);
+		const FString MeshName = bHasWeapon ? GetNameSafe(CurrentWeapon->GetFirstPersonMesh()->GetSkeletalMeshAsset()) : TEXT("none");
+
+		GEngine->AddOnScreenDebugMessage(9001, 0.0f, FColor::Yellow, FString::Printf(
+			TEXT("ADS alpha %.2f | reload alpha %.2f | mesh %s | Sight socket %s | aim point %s | offset %s"),
+			AimDownSightsAlpha, ReloadAlpha, *MeshName,
+			bHasSightSocket ? TEXT("FOUND") : TEXT("MISSING"),
+			bHasAnyPoint ? TEXT("ok") : TEXT("none"),
+			*Offset.ToString()));
+	}
+
+	if (!bRotated && Offset.IsNearlyZero(0.01f))
+	{
+		// nothing to do, make sure the camera is exactly at its default spot
+		Camera->SetRelativeLocation(DefaultCameraRelativeLocation);
+		return;
+	}
+
+	// move the arms (and the weapon attached to them)
+	if (!Offset.IsNearlyZero(0.01f))
+	{
+		Arms->AddWorldOffset(Offset);
+	}
+
+	// the camera is attached to the arms, so keep it where it would have been
+	Camera->SetWorldLocation(CameraBase);
 }
 
 void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -56,6 +252,13 @@ void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 
 		// Switch weapon
 		EnhancedInputComponent->BindAction(SwitchWeaponAction, ETriggerEvent::Triggered, this, &AShooterCharacter::DoSwitchWeapon);
+
+		// Aim down sights (hold)
+		EnhancedInputComponent->BindAction(AimDownSightsAction, ETriggerEvent::Started, this, &AShooterCharacter::DoStartAimDownSights);
+		EnhancedInputComponent->BindAction(AimDownSightsAction, ETriggerEvent::Completed, this, &AShooterCharacter::DoStopAimDownSights);
+
+		// Reload
+		EnhancedInputComponent->BindAction(ReloadAction, ETriggerEvent::Started, this, &AShooterCharacter::DoReload);
 	}
 
 }
@@ -164,6 +367,63 @@ void AShooterCharacter::DoSwitchWeapon()
 
 		// activate the new weapon
 		CurrentWeapon->ActivateWeapon(PlayerTag);
+	}
+}
+
+void AShooterCharacter::DoStartAimDownSights()
+{
+	bWantsToAimDownSights = true;
+}
+
+void AShooterCharacter::DoStopAimDownSights()
+{
+	bWantsToAimDownSights = false;
+}
+
+void AShooterCharacter::DoReload()
+{
+	if (CurrentWeapon && !IsDead())
+	{
+		CurrentWeapon->StartReload();
+	}
+}
+
+void AShooterCharacter::OnWeaponReloadStarted(AShooterWeapon* Weapon, UAnimMontage* Montage, float Duration)
+{
+	if (!Montage)
+	{
+		return;
+	}
+
+	// stretch the montage so it lasts exactly as long as the reload
+	const float PlayRate = Duration > 0.0f ? Montage->GetPlayLength() / Duration : 1.0f;
+
+	if (UAnimInstance* FPAnim = GetFirstPersonMesh()->GetAnimInstance())
+	{
+		FPAnim->Montage_Play(Montage, PlayRate);
+	}
+
+	if (UAnimInstance* TPAnim = GetMesh()->GetAnimInstance())
+	{
+		TPAnim->Montage_Play(Montage, PlayRate);
+	}
+}
+
+void AShooterCharacter::OnWeaponReloadCancelled(AShooterWeapon* Weapon, UAnimMontage* Montage)
+{
+	if (!Montage)
+	{
+		return;
+	}
+
+	if (UAnimInstance* FPAnim = GetFirstPersonMesh()->GetAnimInstance())
+	{
+		FPAnim->Montage_Stop(0.2f, Montage);
+	}
+
+	if (UAnimInstance* TPAnim = GetMesh()->GetAnimInstance())
+	{
+		TPAnim->Montage_Stop(0.2f, Montage);
 	}
 }
 
@@ -299,6 +559,9 @@ void AShooterCharacter::Die()
 
 	// grant the death tag to the character
 	Tags.Add(DeathTag);
+
+	// stop aiming
+	bWantsToAimDownSights = false;
 		
 	// stop character movement
 	GetCharacterMovement()->StopMovementImmediately();

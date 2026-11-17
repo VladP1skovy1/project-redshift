@@ -88,6 +88,10 @@ protected:
 	UFUNCTION()
 	void OnPawnDamaged(float LifePercent);
 
+	/** Called when the possessed pawn starts / stops aiming down sights */
+	UFUNCTION()
+	void OnPawnAimDownSightsChanged(bool bAiming);
+
 	/** Returns true if the player should use UMG touch controls */
 	bool ShouldUseTouchControls() const;
 

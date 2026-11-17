@@ -14,6 +14,7 @@ class UPawnNoiseEmitterComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FBulletCountUpdatedDelegate, int32, MagazineSize, int32, Bullets);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FDamagedDelegate, float, LifePercent);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FAimDownSightsChangedDelegate, bool, bAiming);
 
 /**
  *  A player controllable first person shooter character
@@ -38,6 +39,51 @@ protected:
 	/** Switch weapon input action */
 	UPROPERTY(EditAnywhere, Category ="Input")
 	UInputAction* SwitchWeaponAction;
+
+	/** Aim down sights input action (hold) */
+	UPROPERTY(EditAnywhere, Category ="Input")
+	UInputAction* AimDownSightsAction;
+
+	/** Reload input action */
+	UPROPERTY(EditAnywhere, Category ="Input")
+	UInputAction* ReloadAction;
+
+	/** How fast the camera zooms in and out when aiming */
+	UPROPERTY(EditAnywhere, Category ="Aim|Down Sights", meta = (ClampMin = 1, ClampMax = 50))
+	float AimDownSightsInterpSpeed = 15.0f;
+
+	/** Walk speed multiplier while aiming down sights */
+	UPROPERTY(EditAnywhere, Category ="Aim|Down Sights", meta = (ClampMin = 0.1, ClampMax = 1))
+	float AimDownSightsWalkSpeedMultiplier = 0.6f;
+
+	/** True while the aim button is held */
+	bool bWantsToAimDownSights = false;
+
+	/** True while actually aiming (button held, weapon supports it, not reloading) */
+	UPROPERTY(BlueprintReadOnly, Category ="Aim|Down Sights")
+	bool bIsAimingDownSights = false;
+
+	/** How fast the weapon dips down / comes back up while reloading */
+	UPROPERTY(EditAnywhere, Category ="Ammo|Reload", meta = (ClampMin = 1, ClampMax = 50))
+	float ReloadDipInterpSpeed = 8.0f;
+
+	/** 0..1 blend of the aim down sights weapon offset */
+	float AimDownSightsAlpha = 0.0f;
+
+	/** 0..1 blend of the procedural reload motion */
+	float ReloadAlpha = 0.0f;
+
+	/** Default placement of the arms mesh and camera, cached on BeginPlay */
+	FVector DefaultArmsRelativeLocation = FVector::ZeroVector;
+	FRotator DefaultArmsRelativeRotation = FRotator::ZeroRotator;
+
+	/** Handle for the arms "bone transforms finalized" callback */
+	FDelegateHandle ArmsBonesFinalizedHandle;
+	FVector DefaultCameraRelativeLocation = FVector::ZeroVector;
+
+	/** Camera FOV and walk speed when not aiming, cached on BeginPlay */
+	float DefaultFieldOfView = 90.0f;
+	float DefaultMaxWalkSpeed = 600.0f;
 
 	/** Name of the first person mesh weapon socket */
 	UPROPERTY(EditAnywhere, Category ="Weapons")
@@ -89,6 +135,9 @@ public:
 	/** Damaged delegate */
 	FDamagedDelegate OnDamaged;
 
+	/** Aim down sights started / stopped (used by the HUD to hide the crosshair) */
+	FAimDownSightsChangedDelegate OnAimDownSightsChanged;
+
 public:
 
 	/** Constructor */
@@ -101,6 +150,17 @@ protected:
 
 	/** Gameplay cleanup */
 	virtual void EndPlay(EEndPlayReason::Type EndPlayReason) override;
+
+	/** Updates aim down sights state and camera zoom */
+	virtual void Tick(float DeltaSeconds) override;
+
+	/** Moves the arms so the sight lines up with the screen center (ADS) and dips the weapon while reloading.
+	 *  The camera is kept in place, so only the arms and weapon move on screen */
+	void UpdateFirstPersonWeaponOffset();
+
+	/** Called every frame right after the arms animation has finished, so the offsets use this frame's pose (no jitter) */
+	UFUNCTION()
+	void OnArmsBoneTransformsFinalized();
 
 	/** Set up input action bindings */
 	virtual void SetupPlayerInputComponent(UInputComponent* InputComponent) override;
@@ -136,6 +196,18 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Input")
 	void DoSwitchWeapon();
 
+	/** Handles aim down sights press */
+	UFUNCTION(BlueprintCallable, Category="Input")
+	void DoStartAimDownSights();
+
+	/** Handles aim down sights release */
+	UFUNCTION(BlueprintCallable, Category="Input")
+	void DoStopAimDownSights();
+
+	/** Handles reload input */
+	UFUNCTION(BlueprintCallable, Category="Input")
+	void DoReload();
+
 public:
 
 	//~Begin IShooterWeaponHolder interface
@@ -167,6 +239,15 @@ public:
 	/** Notifies the owner that the weapon cooldown has expired and it's ready to shoot again */
 	virtual void OnSemiWeaponRefire() override;
 
+	/** Plays the reload montage, if any */
+	virtual void OnWeaponReloadStarted(AShooterWeapon* Weapon, UAnimMontage* Montage, float Duration) override;
+
+	/** Stops the reload montage */
+	virtual void OnWeaponReloadCancelled(AShooterWeapon* Weapon, UAnimMontage* Montage) override;
+
+	/** Returns true while aiming down sights (Blueprints / AnimBP can read bIsAimingDownSights) */
+	virtual bool IsAimingDownSights() const override { return bIsAimingDownSights; }
+
 	//~End IShooterWeaponHolder interface
 
 protected:
@@ -185,6 +266,9 @@ protected:
 	void OnRespawn();
 
 public:
+
+	/** Returns the currently equipped weapon (may be null) */
+	AShooterWeapon* GetCurrentWeapon() const { return CurrentWeapon; }
 
 	/** Returns true if the character is dead */
 	bool IsDead() const;

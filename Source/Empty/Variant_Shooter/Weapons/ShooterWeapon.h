@@ -48,7 +48,78 @@ protected:
 
 	/** Number of bullets in the current magazine */
 	int32 CurrentBullets = 0;
-	
+
+	/** If true, the reserve never runs out (only the magazine matters) */
+	UPROPERTY(EditAnywhere, Category="Ammo|Reload")
+	bool bInfiniteReserveAmmo = true;
+
+	/** Spare bullets carried outside the magazine. Ignored if bInfiniteReserveAmmo */
+	UPROPERTY(EditAnywhere, Category="Ammo|Reload", meta = (ClampMin = 0, EditCondition = "!bInfiniteReserveAmmo"))
+	int32 MaxReserveAmmo = 90;
+
+	/** Current spare bullets */
+	int32 ReserveAmmo = 0;
+
+	/** How long a reload takes */
+	UPROPERTY(EditAnywhere, Category="Ammo|Reload", meta = (ClampMin = 0, ClampMax = 10, Units = "s"))
+	float ReloadTime = 1.5f;
+
+	/** Automatically start reloading when the magazine runs dry */
+	UPROPERTY(EditAnywhere, Category="Ammo|Reload")
+	bool bAutoReloadWhenEmpty = true;
+
+	/** Optional montage played on the character while reloading (stretched to ReloadTime). Needs a slot in the AnimBP */
+	UPROPERTY(EditAnywhere, Category="Ammo|Reload")
+	UAnimMontage* ReloadMontage = nullptr;
+
+	/** Procedural reload motion: how far the weapon dips while reloading, in view space (X forward, Y right, Z up) */
+	UPROPERTY(EditAnywhere, Category="Ammo|Reload", meta = (Units = "cm"))
+	FVector ReloadDipOffset = FVector(-5.0f, 3.0f, -20.0f);
+
+	/** True while a reload is in progress */
+	bool bIsReloading = false;
+
+	/** Timer that completes the reload */
+	FTimerHandle ReloadTimer;
+
+	/** If false, this weapon cannot aim down sights (e.g. grenade launcher) */
+	UPROPERTY(EditAnywhere, Category="Aim|Down Sights")
+	bool bCanAimDownSights = true;
+
+	/** Camera field of view while aiming down sights (lower = more zoom) */
+	UPROPERTY(EditAnywhere, Category="Aim|Down Sights", meta = (ClampMin = 5, ClampMax = 170, Units = "Degrees", EditCondition = "bCanAimDownSights"))
+	float AimDownSightsFOV = 60.0f;
+
+	/** AimVariance is multiplied by this while aiming (0 = perfect accuracy) */
+	UPROPERTY(EditAnywhere, Category="Aim|Down Sights", meta = (ClampMin = 0, ClampMax = 1, EditCondition = "bCanAimDownSights"))
+	float AimDownSightsVarianceMultiplier = 0.25f;
+
+	/** Socket on the first person weapon mesh placed at the sight / optic. It gets aligned with the screen center while aiming.
+	 *  Falls back to the muzzle socket if missing */
+	UPROPERTY(EditAnywhere, Category="Aim|Down Sights", meta = (EditCondition = "bCanAimDownSights"))
+	FName SightSocketName = FName("Sight");
+
+	/** Experimental: slightly rotate the arms so the line Sight -> SightFront points exactly at the screen center.
+	 *  Needs a SightFront socket. The rotation is capped by MaxSightAlignAngle because the arms mesh is the whole body */
+	UPROPERTY(EditAnywhere, Category="Aim|Down Sights", meta = (EditCondition = "bCanAimDownSights"))
+	bool bAlignSightRotation = false;
+
+	/** Max correction angle for bAlignSightRotation */
+	UPROPERTY(EditAnywhere, Category="Aim|Down Sights", meta = (ClampMin = 0, ClampMax = 30, Units = "Degrees", EditCondition = "bCanAimDownSights && bAlignSightRotation"))
+	float MaxSightAlignAngle = 5.0f;
+
+	/** Optional socket on the front sight (the post near the muzzle). Together with the Sight socket it defines the line of sight */
+	UPROPERTY(EditAnywhere, Category="Aim|Down Sights", meta = (EditCondition = "bCanAimDownSights"))
+	FName FrontSightSocketName = FName("SightFront");
+
+	/** If > 0, also pulls the weapon towards the eye so the sight sits this far in front of the camera. 0 = only center it */
+	UPROPERTY(EditAnywhere, Category="Aim|Down Sights", meta = (ClampMin = 0, ClampMax = 100, Units = "cm", EditCondition = "bCanAimDownSights"))
+	float AimDownSightsEyeDistance = 0.0f;
+
+	/** Recoil is multiplied by this while aiming */
+	UPROPERTY(EditAnywhere, Category="Aim|Down Sights", meta = (ClampMin = 0, ClampMax = 1, EditCondition = "bCanAimDownSights"))
+	float AimDownSightsRecoilMultiplier = 0.6f;
+
 	/** Animation montage to play when firing this weapon */
 	UPROPERTY(EditAnywhere, Category="Animation")
 	UAnimMontage* FiringMontage;
@@ -142,6 +213,20 @@ public:
 	/** Stop firing this weapon */
 	void StopFiring();
 
+	/** Starts a reload if possible. Returns true if a reload was started */
+	bool StartReload();
+
+	/** Interrupts a reload in progress without refilling */
+	void CancelReload();
+
+protected:
+
+	/** Completes the reload and refills the magazine */
+	void FinishReload();
+
+	/** True if the owner is currently aiming down sights with this weapon */
+	bool IsOwnerAiming() const;
+
 protected:
 
 	/** Fire the weapon */
@@ -177,4 +262,39 @@ public:
 
 	/** Returns the current bullet count */
 	int32 GetBulletCount() const { return CurrentBullets; }
+
+	/** Returns the spare ammo count (-1 if infinite) */
+	UFUNCTION(BlueprintPure, Category="Weapon")
+	int32 GetReserveAmmo() const { return bInfiniteReserveAmmo ? -1 : ReserveAmmo; }
+
+	/** Returns true while reloading */
+	UFUNCTION(BlueprintPure, Category="Weapon")
+	bool IsReloading() const { return bIsReloading; }
+
+	/** Returns true if this weapon supports aiming down sights */
+	bool CanAimDownSights() const { return bCanAimDownSights; }
+
+	/** Returns the ADS camera FOV */
+	float GetAimDownSightsFOV() const { return AimDownSightsFOV; }
+
+	/** Returns the ADS eye distance (0 = disabled) */
+	float GetAimDownSightsEyeDistance() const { return AimDownSightsEyeDistance; }
+
+	/** Returns the procedural reload dip offset in view space */
+	const FVector& GetReloadDipOffset() const { return ReloadDipOffset; }
+
+	/** World location of the sight socket (or muzzle as fallback). Returns false if neither exists */
+	bool GetSightLocation(FVector& OutLocation) const;
+
+	/** World transform of the sight socket (or muzzle as fallback). Returns false if neither exists */
+	bool GetSightTransform(FTransform& OutTransform) const;
+
+	/** World location of the front sight socket. Returns false if the socket doesn't exist */
+	bool GetFrontSightLocation(FVector& OutLocation) const;
+
+	/** Returns true if the weapon should be rotated to line up with the view while aiming */
+	bool ShouldAlignSightRotation() const { return bAlignSightRotation; }
+
+	/** Max correction angle in degrees for the sight rotation alignment */
+	float GetMaxSightAlignAngle() const { return MaxSightAlignAngle; }
 };

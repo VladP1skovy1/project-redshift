@@ -52,4 +52,18 @@ public:
 
 	/** Notifies the owner that the weapon cooldown has expired and it's ready to shoot again */
 	virtual void OnSemiWeaponRefire() = 0;
+
+	// --- Reload / ADS (optional overrides, default no-op so AI classes don't need changes) ---
+
+	/** Called when the weapon starts reloading. Montage may be null */
+	virtual void OnWeaponReloadStarted(AShooterWeapon* Weapon, UAnimMontage* Montage, float Duration) {}
+
+	/** Called when the weapon finishes reloading */
+	virtual void OnWeaponReloadFinished(AShooterWeapon* Weapon) {}
+
+	/** Called when a reload is interrupted (weapon switch, death) */
+	virtual void OnWeaponReloadCancelled(AShooterWeapon* Weapon, UAnimMontage* Montage) {}
+
+	/** Returns true if the owner is currently aiming down sights */
+	virtual bool IsAimingDownSights() const { return false; }
 };
