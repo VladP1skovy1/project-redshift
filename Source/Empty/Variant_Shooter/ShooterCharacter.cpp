@@ -32,6 +32,10 @@ AShooterCharacter::AShooterCharacter()
 	// configure movement
 	GetCharacterMovement()->RotationRate = FRotator(0.0f, 600.0f, 0.0f);
 
+	// crouching
+	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanCrouch = true;
+	GetCharacterMovement()->SetCrouchedHalfHeight(55.0f);
+
 	// tick is used for the aim down sights zoom
 	PrimaryActorTick.bCanEverTick = true;
 }
@@ -138,6 +142,34 @@ void AShooterCharacter::Tick(float DeltaSeconds)
 
 	// camera recoil
 	UpdateRecoil(DeltaSeconds);
+
+	// smooth crouch camera
+	CrouchAlpha = FMath::FInterpTo(CrouchAlpha, bIsCrouched ? 1.0f : 0.0f, DeltaSeconds, CrouchCameraInterpSpeed);
+
+	// hide / show the first person legs while crouched
+	const bool bShouldHideLegs = bHideFirstPersonLegsWhenCrouched && CrouchAlpha > 0.05f;
+
+	if (bShouldHideLegs != bFirstPersonLegsHidden)
+	{
+		bFirstPersonLegsHidden = bShouldHideLegs;
+
+		for (const FName& Bone : FirstPersonLegBones)
+		{
+			if (GetFirstPersonMesh()->GetBoneIndex(Bone) == INDEX_NONE)
+			{
+				continue;
+			}
+
+			if (bShouldHideLegs)
+			{
+				GetFirstPersonMesh()->HideBoneByName(Bone, EPhysBodyOp::PBO_None);
+			}
+			else
+			{
+				GetFirstPersonMesh()->UnHideBoneByName(Bone);
+			}
+		}
+	}
 
 	// visual weapon kick springs back
 	if (IsValid(CurrentWeapon))
@@ -403,6 +435,19 @@ void AShooterCharacter::UpdateFirstPersonWeaponOffset()
 			*Offset.ToString()));
 	}
 
+	// crouch: the arms mesh isn't lowered by the capsule (it keeps its world height), so lower camera and arms ourselves.
+	// Applied last so the ADS / strike alignments above stay correct
+	float Drop = CrouchCameraDrop;
+
+	if (Drop <= 0.0f)
+	{
+		const UCharacterMovementComponent* Movement = GetCharacterMovement();
+		Drop = GetClass()->GetDefaultObject<ACharacter>()->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() - Movement->GetCrouchedHalfHeight();
+	}
+
+	const FVector CrouchShift(0.0f, 0.0f, -Drop * CrouchAlpha);
+	Offset += CrouchShift;
+
 	if (!bRotated && Offset.IsNearlyZero(0.01f))
 	{
 		// nothing to do, make sure the camera is exactly at its default spot
@@ -416,8 +461,8 @@ void AShooterCharacter::UpdateFirstPersonWeaponOffset()
 		Arms->AddWorldOffset(Offset);
 	}
 
-	// the camera is attached to the arms, so keep it where it would have been
-	Camera->SetWorldLocation(CameraBase);
+	// the camera is attached to the arms, so keep it where it would have been (plus the crouch drop)
+	Camera->SetWorldLocation(CameraBase + CrouchShift);
 }
 
 void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -446,6 +491,13 @@ void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 		if (CycleWeaponAction)
 		{
 			EnhancedInputComponent->BindAction(CycleWeaponAction, ETriggerEvent::Triggered, this, &AShooterCharacter::CycleWeaponInput);
+		}
+
+		// Crouch
+		if (CrouchAction)
+		{
+			EnhancedInputComponent->BindAction(CrouchAction, ETriggerEvent::Started, this, &AShooterCharacter::DoCrouchStart);
+			EnhancedInputComponent->BindAction(CrouchAction, ETriggerEvent::Completed, this, &AShooterCharacter::DoCrouchEnd);
 		}
 
 		// Put away / take out
@@ -672,6 +724,32 @@ void AShooterCharacter::EquipWeapon(AShooterWeapon* Weapon)
 	CurrentWeapon = Weapon;
 	LastEquippedWeapon = Weapon;
 	CurrentWeapon->ActivateWeapon(PlayerTag);
+}
+
+void AShooterCharacter::DoCrouchStart()
+{
+	if (IsDead())
+	{
+		return;
+	}
+
+	if (bToggleCrouch && bIsCrouched)
+	{
+		UnCrouch();
+	}
+	else
+	{
+		Crouch();
+	}
+}
+
+void AShooterCharacter::DoCrouchEnd()
+{
+	// in hold mode, releasing the key stands back up (if there's room above)
+	if (!bToggleCrouch)
+	{
+		UnCrouch();
+	}
 }
 
 void AShooterCharacter::DoToggleHolster()

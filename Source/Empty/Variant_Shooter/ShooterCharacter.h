@@ -57,6 +57,36 @@ protected:
 	UPROPERTY(EditAnywhere, Category ="Input")
 	TArray<UInputAction*> WeaponSlotActions;
 
+	/** Crouch input action (e.g. Left Ctrl) */
+	UPROPERTY(EditAnywhere, Category ="Input")
+	UInputAction* CrouchAction;
+
+	/** If true, pressing crouch toggles it. If false, you crouch while the key is held */
+	UPROPERTY(EditAnywhere, Category ="Movement|Crouch")
+	bool bToggleCrouch = false;
+
+	/** How fast the camera goes down / up when crouching */
+	UPROPERTY(EditAnywhere, Category ="Movement|Crouch", meta = (ClampMin = 1, ClampMax = 50))
+	float CrouchCameraInterpSpeed = 12.0f;
+
+	/** How far the camera drops when crouched. 0 = use the capsule height difference */
+	UPROPERTY(EditAnywhere, Category ="Movement|Crouch", meta = (ClampMin = 0, ClampMax = 150, Units = "cm"))
+	float CrouchCameraDrop = 48.0f;
+
+	/** Hide the legs of the first person body while crouched (there's no crouch animation yet, so they'd go through the floor) */
+	UPROPERTY(EditAnywhere, Category ="Movement|Crouch")
+	bool bHideFirstPersonLegsWhenCrouched = true;
+
+	/** Leg root bones hidden by bHideFirstPersonLegsWhenCrouched (children are hidden too) */
+	UPROPERTY(EditAnywhere, Category ="Movement|Crouch")
+	TArray<FName> FirstPersonLegBones = { FName("thigh_l"), FName("thigh_r") };
+
+	/** True while the first person legs are hidden */
+	bool bFirstPersonLegsHidden = false;
+
+	/** 0 = standing camera, 1 = crouched camera */
+	float CrouchAlpha = 0.0f;
+
 	/** Put the weapon away / take it back out (e.g. X) */
 	UPROPERTY(EditAnywhere, Category ="Input")
 	UInputAction* HolsterAction;
@@ -270,6 +300,14 @@ public:
 	/** Handles reload input */
 	UFUNCTION(BlueprintCallable, Category="Input")
 	void DoReload();
+
+	/** Crouch key pressed */
+	UFUNCTION(BlueprintCallable, Category="Input")
+	void DoCrouchStart();
+
+	/** Crouch key released */
+	UFUNCTION(BlueprintCallable, Category="Input")
+	void DoCrouchEnd();
 
 	/** Equips the next (Direction > 0) or previous (Direction < 0) weapon */
 	UFUNCTION(BlueprintCallable, Category="Input")
