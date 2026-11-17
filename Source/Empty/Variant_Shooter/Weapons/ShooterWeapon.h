@@ -99,6 +99,12 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Aim|Down Sights", meta = (ClampMin = 0, ClampMax = 1, EditCondition = "bCanAimDownSights"))
 	float AimDownSightsVarianceMultiplier = 0.25f;
 
+	// ---------------- Inventory ----------------
+
+	/** Number key that selects this weapon: 1 = melee, 2 = firearms. Weapons sharing a slot are cycled by pressing the key again */
+	UPROPERTY(EditAnywhere, Category="Inventory", meta = (ClampMin = 1, ClampMax = 9))
+	int32 InventorySlot = 2;
+
 	// ---------------- Recoil ----------------
 
 	/** Fixed recoil pattern, one entry per shot in a spray: X = yaw (degrees, + right), Y = pitch (degrees, + up).
@@ -393,6 +399,22 @@ public:
 
 	/** Max correction angle in degrees for the sight rotation alignment */
 	float GetMaxSightAlignAngle() const { return MaxSightAlignAngle; }
+
+	/** Extra procedural offset of the arms in view space (X forward, Y right, Z up). Used by melee swings */
+	virtual FVector GetProceduralViewOffset() const { return FVector::ZeroVector; }
+
+	/** Called by the owner every frame after the arms animation, before the arms offsets are measured.
+	 *  Lets the weapon pose itself relative to the view (melee swing direction) */
+	virtual void UpdateProceduralPose(const FVector& ViewOrigin, const FRotator& ViewRotation) {}
+
+	/** 0..1: how strongly the weapon tip should be pulled to the screen center right now (melee strike) */
+	virtual float GetStrikeAimAlpha() const { return 0.0f; }
+
+	/** World location of the weapon tip (melee). Returns false if there is none */
+	virtual bool GetStrikeTipLocation(FVector& OutLocation) const { return false; }
+
+	/** Number key slot of this weapon */
+	int32 GetInventorySlot() const { return InventorySlot; }
 
 	/** Recoil recovery settings, read by the owner */
 	float GetRecoilKickSpeed() const { return RecoilKickSpeed; }

@@ -67,6 +67,9 @@ public:
 	/** Applies a full recoil kick (Pitch up / Yaw right, degrees). Default falls back to the old pitch-only recoil */
 	virtual void ApplyWeaponRecoil(const FRotator& Kick, AShooterWeapon* Weapon) { AddWeaponRecoil(Kick.Pitch); }
 
+	/** Plays a montage on the owner's first person arms and/or third person body (used by melee swings) */
+	virtual void PlayWeaponMontage(UAnimMontage* Montage, bool bFirstPerson, bool bThirdPerson) {}
+
 	/** Returns true if the owner is currently aiming down sights */
 	virtual bool IsAimingDownSights() const { return false; }
 };

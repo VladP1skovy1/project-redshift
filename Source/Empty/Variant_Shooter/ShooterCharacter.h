@@ -11,6 +11,7 @@ class AShooterWeapon;
 class UInputAction;
 class UInputComponent;
 class UPawnNoiseEmitterComponent;
+class UAnimInstance;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FBulletCountUpdatedDelegate, int32, MagazineSize, int32, Bullets);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FDamagedDelegate, float, LifePercent);
@@ -47,6 +48,42 @@ protected:
 	/** Reload input action */
 	UPROPERTY(EditAnywhere, Category ="Input")
 	UInputAction* ReloadAction;
+
+	/** Next / previous weapon (Axis1D, bound to the mouse wheel) */
+	UPROPERTY(EditAnywhere, Category ="Input")
+	UInputAction* CycleWeaponAction;
+
+	/** Select weapon by slot: element 0 = key 1, element 1 = key 2, ... */
+	UPROPERTY(EditAnywhere, Category ="Input")
+	TArray<UInputAction*> WeaponSlotActions;
+
+	/** Put the weapon away / take it back out (e.g. X) */
+	UPROPERTY(EditAnywhere, Category ="Input")
+	UInputAction* HolsterAction;
+
+	/** Pressing the number key of the weapon in your hands twice within this time puts it away */
+	UPROPERTY(EditAnywhere, Category ="Weapons", meta = (ClampMin = 0.05, ClampMax = 1, Units = "s"))
+	float DoubleTapTime = 0.3f;
+
+	/** Arms AnimBP used with no weapon in hands. Empty = the one the character starts with */
+	UPROPERTY(EditAnywhere, Category ="Weapons")
+	TSubclassOf<UAnimInstance> UnarmedFirstPersonAnimClass;
+
+	/** Body AnimBP used with no weapon in hands. Empty = the one the character starts with */
+	UPROPERTY(EditAnywhere, Category ="Weapons")
+	TSubclassOf<UAnimInstance> UnarmedThirdPersonAnimClass;
+
+	/** Weapon to take back out after putting it away */
+	TWeakObjectPtr<AShooterWeapon> LastEquippedWeapon;
+
+	/** Double tap tracking for the number keys */
+	int32 LastSlotPressed = 0;
+	float LastSlotPressTime = -1000.0f;
+	bool bLastSlotPressWasHolding = false;
+
+	/** Weapons the character spawns with (e.g. a knife) */
+	UPROPERTY(EditAnywhere, Category ="Weapons")
+	TArray<TSubclassOf<AShooterWeapon>> DefaultWeapons;
 
 	/** How fast the camera zooms in and out when aiming */
 	UPROPERTY(EditAnywhere, Category ="Aim|Down Sights", meta = (ClampMin = 1, ClampMax = 50))
@@ -234,6 +271,31 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Input")
 	void DoReload();
 
+	/** Equips the next (Direction > 0) or previous (Direction < 0) weapon */
+	UFUNCTION(BlueprintCallable, Category="Input")
+	void DoCycleWeapon(float Direction);
+
+	/** Equips a weapon in the given number slot. Pressing again cycles weapons sharing the slot */
+	UFUNCTION(BlueprintCallable, Category="Input")
+	void DoSelectWeaponSlot(int32 Slot);
+
+	/** Mouse wheel input */
+	void CycleWeaponInput(const FInputActionValue& Value);
+
+	/** Switches to the given owned weapon */
+	void EquipWeapon(AShooterWeapon* Weapon);
+
+	/** Puts the weapon away (hands only) or takes it back out */
+	UFUNCTION(BlueprintCallable, Category="Input")
+	void DoToggleHolster();
+
+	/** Puts the current weapon away, leaving empty hands */
+	void HolsterWeapon();
+
+	/** Returns true if there are weapons but none is in the hands */
+	UFUNCTION(BlueprintPure, Category="Weapons")
+	bool IsHolstered() const { return !CurrentWeapon && OwnedWeapons.Num() > 0; }
+
 public:
 
 	//~Begin IShooterWeaponHolder interface
@@ -249,6 +311,9 @@ public:
 
 	/** Applies a full pattern recoil kick */
 	virtual void ApplyWeaponRecoil(const FRotator& Kick, AShooterWeapon* Weapon) override;
+
+	/** Plays a montage on the first and third person meshes */
+	virtual void PlayWeaponMontage(UAnimMontage* Montage, bool bFirstPerson, bool bThirdPerson) override;
 
 	/** Updates the weapon's HUD with the current ammo count */
 	virtual void UpdateWeaponHUD(int32 CurrentAmmo, int32 MagazineSize) override;
