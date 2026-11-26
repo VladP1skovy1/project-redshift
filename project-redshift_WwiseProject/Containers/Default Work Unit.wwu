@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WwiseDocument Type="WorkUnit" ID="{58E78E05-E98E-4049-8F70-9351DB8773C8}" SchemaVersion="133">
+	<Containers>
+		<WorkUnit Name="Default Work Unit" ID="{58E78E05-E98E-4049-8F70-9351DB8773C8}" PersistMode="Standalone">
+			<ChildrenList>
+				<WorkUnit Name="Locomotion" ID="{13654D08-5A7C-4668-8A7B-7D383B66D58F}" PersistMode="Reference"/>
+			</ChildrenList>
+		</WorkUnit>
+	</Containers>
+</WwiseDocument>

@@ -1,0 +1,199 @@
+{
+ "SoundBanksInfo": {
+  "Platform": "Mac",
+  "BasePlatform": "Mac",
+  "SchemaVersion": "16",
+  "SoundBankVersion": "172",
+  "SoundBanks": [
+   {
+    "Id": "3854155799",
+    "Type": "Event",
+    "GUID": "{0EF5244B-4869-423A-8023-96794E7E4B76}",
+    "Language": "SFX",
+    "Hash": "{12548FE0-2F44-BDD7-94B9-BA9110434F5A}",
+    "ObjectPath": "Play_Footsteps",
+    "ShortName": "Play_Footsteps",
+    "Path": "Event/Play_Footsteps.bnk",
+    "Media": [
+     {
+      "Id": "117395306",
+      "Language": "SFX",
+      "Streaming": "false",
+      "Location": "Loose",
+      "ShortName": "Walking_on_Grass_Footsteps_on_Tall_Grass_Sound_Effects.wav",
+      "Path": "Media/117395306.wem",
+      "CachePath": "9E/{9E92D234-DDF3-DFBA-03F5-340358C79BE0}.wem"
+     },
+     {
+      "Id": "202428915",
+      "Language": "SFX",
+      "Streaming": "false",
+      "Location": "Loose",
+      "ShortName": "Walking_on_Grass_Footsteps_on_Tall_Grass_Sound_Effects.wav",
+      "Path": "Media/202428915.wem",
+      "CachePath": "15/{15C1B059-3DC5-357A-AF37-42FFBF030D90}.wem"
+     },
+     {
+      "Id": "351578754",
+      "Language": "SFX",
+      "Streaming": "false",
+      "Location": "Loose",
+      "ShortName": "freesound_community-concrete-footsteps-6752.wav",
+      "Path": "Media/351578754.wem",
+      "CachePath": "2C/{2CD0A68A-186F-4DE4-A4D5-C960F16D8938}.wem"
+     },
+     {
+      "Id": "443667404",
+      "Language": "SFX",
+      "Streaming": "false",
+      "Location": "Loose",
+      "ShortName": "freesound_community-concrete-footsteps-6752.wav",
+      "Path": "Media/443667404.wem",
+      "CachePath": "14/{14CEA9DE-AB2E-BC5A-C0B4-C075F592358A}.wem"
+     },
+     {
+      "Id": "538930333",
+      "Language": "SFX",
+      "Streaming": "false",
+      "Location": "Loose",
+      "ShortName": "Walking_on_Grass_Footsteps_on_Tall_Grass_Sound_Effects.wav",
+      "Path": "Media/538930333.wem",
+      "CachePath": "6B/{6BD43C60-631C-5D6D-10C8-B484442B2620}.wem"
+     },
+     {
+      "Id": "648580235",
+      "Language": "SFX",
+      "Streaming": "false",
+      "Location": "Loose",
+      "ShortName": "Walking_on_Grass_Footsteps_on_Tall_Grass_Sound_Effects.wav",
+      "Path": "Media/648580235.wem",
+      "CachePath": "27/{27695C43-EC34-10C5-5E62-DD64CCB259EC}.wem"
+     },
+     {
+      "Id": "792486933",
+      "Language": "SFX",
+      "Streaming": "false",
+      "Location": "Loose",
+      "ShortName": "freesound_community-concrete-footsteps-6752.wav",
+      "Path": "Media/792486933.wem",
+      "CachePath": "E5/{E5168A2D-5869-7295-BE6B-317D472784AC}.wem"
+     },
+     {
+      "Id": "963974167",
+      "Language": "SFX",
+      "Streaming": "false",
+      "Location": "Loose",
+      "ShortName": "freesound_community-concrete-footsteps-6752.wav",
+      "Path": "Media/963974167.wem",
+      "CachePath": "A7/{A744EDD6-BB9A-A895-795F-E6277212B0F6}.wem"
+     }
+    ],
+    "Events": [
+     {
+      "Id": "3854155799",
+      "Name": "Play_Footsteps",
+      "ObjectPath": "\\Events\\Default Work Unit\\Play_Footsteps",
+      "GUID": "{0EF5244B-4869-423A-8023-96794E7E4B76}",
+      "DurationType": "OneShot",
+      "DurationMin": "0.29575214",
+      "DurationMax": "0.79160744",
+      "SwitchContainers": [
+       {
+        "SwitchValue": {
+         "GroupType": "Switch",
+         "GroupId": "2800435021",
+         "Id": "1216965916",
+         "GUID": "{FAD9830B-2E8C-4448-8EBC-1CEB19E99504}",
+         "Default": "true"
+        },
+        "MediaRefs": [
+         {
+          "Id": "351578754"
+         },
+         {
+          "Id": "443667404"
+         },
+         {
+          "Id": "792486933"
+         },
+         {
+          "Id": "963974167"
+         }
+        ]
+       },
+       {
+        "SwitchValue": {
+         "GroupType": "Switch",
+         "GroupId": "2800435021",
+         "Id": "4248645337",
+         "GUID": "{474EC50B-8BD6-464F-8601-2DA1E302632C}"
+        },
+        "MediaRefs": [
+         {
+          "Id": "117395306"
+         },
+         {
+          "Id": "202428915"
+         },
+         {
+          "Id": "538930333"
+         },
+         {
+          "Id": "648580235"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "SwitchGroups": [
+     {
+      "Id": "2800435021",
+      "Name": "Footsteps_SurfaceMaterial",
+      "ObjectPath": "\\Switches\\Default Work Unit\\Footsteps_SurfaceMaterial",
+      "GUID": "{42DCFA1D-540D-473D-8539-4BD0774C79C3}",
+      "Switches": [
+       {
+        "Id": "582824249",
+        "Name": "Leaves",
+        "ObjectPath": "\\Switches\\Default Work Unit\\Footsteps_SurfaceMaterial\\Leaves",
+        "GUID": "{30EF2802-B63D-4B34-8249-CCD595B2402B}"
+       },
+       {
+        "Id": "803837735",
+        "Name": "Sand",
+        "ObjectPath": "\\Switches\\Default Work Unit\\Footsteps_SurfaceMaterial\\Sand",
+        "GUID": "{0068047E-F96A-4BC1-90B5-0487199124E8}"
+       },
+       {
+        "Id": "1216965916",
+        "Name": "Stone",
+        "ObjectPath": "\\Switches\\Default Work Unit\\Footsteps_SurfaceMaterial\\Stone",
+        "GUID": "{FAD9830B-2E8C-4448-8EBC-1CEB19E99504}"
+       },
+       {
+        "Id": "2473969246",
+        "Name": "Metal",
+        "ObjectPath": "\\Switches\\Default Work Unit\\Footsteps_SurfaceMaterial\\Metal",
+        "GUID": "{EFD0A0F0-09FA-4B43-9477-07B043EE5578}"
+       },
+       {
+        "Id": "2654748154",
+        "Name": "Water",
+        "ObjectPath": "\\Switches\\Default Work Unit\\Footsteps_SurfaceMaterial\\Water",
+        "GUID": "{C011F24E-6B61-4E40-9C9F-1E13AC026E54}"
+       },
+       {
+        "Id": "4248645337",
+        "Name": "Grass",
+        "ObjectPath": "\\Switches\\Default Work Unit\\Footsteps_SurfaceMaterial\\Grass",
+        "GUID": "{474EC50B-8BD6-464F-8601-2DA1E302632C}"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "FileHash": "{C62A25E9-5C47-8194-955B-1468225F4625}"
+ }
+}

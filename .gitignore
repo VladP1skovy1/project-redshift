@@ -75,6 +75,16 @@ Config/steamvr_ue_editor_app.json
 Config/SteamVRBindings
 Platforms/HoloLens/Config/HoloLensEngine.ini
 .vsconfig
+
+Plugins/WwiseSoundEngine/ThirdParty/*
+!Plugins/WwiseSoundEngine/ThirdParty/include/
+!Plugins/WwiseSoundEngine/ThirdParty/x64_vc180/
+Plugins/WwiseSoundEngine/ThirdParty/x64_vc180/*
+!Plugins/WwiseSoundEngine/ThirdParty/x64_vc180/Profile/
+!Plugins/WwiseSoundEngine/ThirdParty/x64_vc180/Release/
+!Plugins/WwiseSoundEngine/ThirdParty/x64_vc180/*/lib/*.lib
+!Plugins/WwiseSoundEngine/ThirdParty/x64_vc180/*/bin/*.dll
+Plugins/WwiseSoundEngine/ThirdParty/**/*.pdb
 # Rider / VS generated solution files
 *.slnx
 CMakeLists.txt

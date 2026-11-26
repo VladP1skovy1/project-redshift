@@ -1,0 +1,14 @@
+Event	ID	Name			Wwise Object Path	Notes
+	3854155799	Play_Footsteps			\Default Work Unit\Play_Footsteps	
+
+Switch Group	ID	Name			Wwise Object Path	Notes
+	2800435021	Footsteps_SurfaceMaterial			\Default Work Unit\Footsteps_SurfaceMaterial	
+
+Switch	ID	Name	Switch Group			Notes
+	582824249	Leaves	Footsteps_SurfaceMaterial			
+	803837735	Sand	Footsteps_SurfaceMaterial			
+	1216965916	Stone	Footsteps_SurfaceMaterial			
+	2473969246	Metal	Footsteps_SurfaceMaterial			
+	2654748154	Water	Footsteps_SurfaceMaterial			
+	4248645337	Grass	Footsteps_SurfaceMaterial			
+
