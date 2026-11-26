@@ -52,4 +52,24 @@ public:
 
 	/** Notifies the owner that the weapon cooldown has expired and it's ready to shoot again */
 	virtual void OnSemiWeaponRefire() = 0;
+
+	// --- Reload / ADS (optional overrides, default no-op so AI classes don't need changes) ---
+
+	/** Called when the weapon starts reloading. Montage may be null */
+	virtual void OnWeaponReloadStarted(AShooterWeapon* Weapon, UAnimMontage* Montage, float Duration) {}
+
+	/** Called when the weapon finishes reloading */
+	virtual void OnWeaponReloadFinished(AShooterWeapon* Weapon) {}
+
+	/** Called when a reload is interrupted (weapon switch, death) */
+	virtual void OnWeaponReloadCancelled(AShooterWeapon* Weapon, UAnimMontage* Montage) {}
+
+	/** Applies a full recoil kick (Pitch up / Yaw right, degrees). Default falls back to the old pitch-only recoil */
+	virtual void ApplyWeaponRecoil(const FRotator& Kick, AShooterWeapon* Weapon) { AddWeaponRecoil(Kick.Pitch); }
+
+	/** Plays a montage on the owner's first person arms and/or third person body (used by melee swings) */
+	virtual void PlayWeaponMontage(UAnimMontage* Montage, bool bFirstPerson, bool bThirdPerson) {}
+
+	/** Returns true if the owner is currently aiming down sights */
+	virtual bool IsAimingDownSights() const { return false; }
 };

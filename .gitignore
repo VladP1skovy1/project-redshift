@@ -85,3 +85,6 @@ Plugins/WwiseSoundEngine/ThirdParty/x64_vc180/*
 !Plugins/WwiseSoundEngine/ThirdParty/x64_vc180/*/lib/*.lib
 !Plugins/WwiseSoundEngine/ThirdParty/x64_vc180/*/bin/*.dll
 Plugins/WwiseSoundEngine/ThirdParty/**/*.pdb
+# Rider / VS generated solution files
+*.slnx
+CMakeLists.txt

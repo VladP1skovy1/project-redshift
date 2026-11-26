@@ -11,9 +11,11 @@ class AShooterWeapon;
 class UInputAction;
 class UInputComponent;
 class UPawnNoiseEmitterComponent;
+class UAnimInstance;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FBulletCountUpdatedDelegate, int32, MagazineSize, int32, Bullets);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FDamagedDelegate, float, LifePercent);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FAimDownSightsChangedDelegate, bool, bAiming);
 
 /**
  *  A player controllable first person shooter character
@@ -38,6 +40,143 @@ protected:
 	/** Switch weapon input action */
 	UPROPERTY(EditAnywhere, Category ="Input")
 	UInputAction* SwitchWeaponAction;
+
+	/** Aim down sights input action (hold) */
+	UPROPERTY(EditAnywhere, Category ="Input")
+	UInputAction* AimDownSightsAction;
+
+	/** Reload input action */
+	UPROPERTY(EditAnywhere, Category ="Input")
+	UInputAction* ReloadAction;
+
+	/** Next / previous weapon (Axis1D, bound to the mouse wheel) */
+	UPROPERTY(EditAnywhere, Category ="Input")
+	UInputAction* CycleWeaponAction;
+
+	/** Select weapon by slot: element 0 = key 1, element 1 = key 2, ... */
+	UPROPERTY(EditAnywhere, Category ="Input")
+	TArray<UInputAction*> WeaponSlotActions;
+
+	/** Crouch input action (e.g. Left Ctrl) */
+	UPROPERTY(EditAnywhere, Category ="Input")
+	UInputAction* CrouchAction;
+
+	/** If true, pressing crouch toggles it. If false, you crouch while the key is held */
+	UPROPERTY(EditAnywhere, Category ="Movement|Crouch")
+	bool bToggleCrouch = false;
+
+	/** How fast the camera goes down / up when crouching */
+	UPROPERTY(EditAnywhere, Category ="Movement|Crouch", meta = (ClampMin = 1, ClampMax = 50))
+	float CrouchCameraInterpSpeed = 12.0f;
+
+	/** How far the camera drops when crouched. 0 = use the capsule height difference */
+	UPROPERTY(EditAnywhere, Category ="Movement|Crouch", meta = (ClampMin = 0, ClampMax = 150, Units = "cm"))
+	float CrouchCameraDrop = 48.0f;
+
+	/** Hide the legs of the first person body while crouched (there's no crouch animation yet, so they'd go through the floor) */
+	UPROPERTY(EditAnywhere, Category ="Movement|Crouch")
+	bool bHideFirstPersonLegsWhenCrouched = true;
+
+	/** Leg root bones hidden by bHideFirstPersonLegsWhenCrouched (children are hidden too) */
+	UPROPERTY(EditAnywhere, Category ="Movement|Crouch")
+	TArray<FName> FirstPersonLegBones = { FName("thigh_l"), FName("thigh_r") };
+
+	/** True while the first person legs are hidden */
+	bool bFirstPersonLegsHidden = false;
+
+	/** 0 = standing camera, 1 = crouched camera */
+	float CrouchAlpha = 0.0f;
+
+	/** Put the weapon away / take it back out (e.g. X) */
+	UPROPERTY(EditAnywhere, Category ="Input")
+	UInputAction* HolsterAction;
+
+	/** Pressing the number key of the weapon in your hands twice within this time puts it away */
+	UPROPERTY(EditAnywhere, Category ="Weapons", meta = (ClampMin = 0.05, ClampMax = 1, Units = "s"))
+	float DoubleTapTime = 0.3f;
+
+	/** Arms AnimBP used with no weapon in hands. Empty = the one the character starts with */
+	UPROPERTY(EditAnywhere, Category ="Weapons")
+	TSubclassOf<UAnimInstance> UnarmedFirstPersonAnimClass;
+
+	/** Body AnimBP used with no weapon in hands. Empty = the one the character starts with */
+	UPROPERTY(EditAnywhere, Category ="Weapons")
+	TSubclassOf<UAnimInstance> UnarmedThirdPersonAnimClass;
+
+	/** Weapon to take back out after putting it away */
+	TWeakObjectPtr<AShooterWeapon> LastEquippedWeapon;
+
+	/** Double tap tracking for the number keys */
+	int32 LastSlotPressed = 0;
+	float LastSlotPressTime = -1000.0f;
+	bool bLastSlotPressWasHolding = false;
+
+	/** Weapons the character spawns with (e.g. a knife) */
+	UPROPERTY(EditAnywhere, Category ="Weapons")
+	TArray<TSubclassOf<AShooterWeapon>> DefaultWeapons;
+
+	/** How fast the camera zooms in and out when aiming */
+	UPROPERTY(EditAnywhere, Category ="Aim|Down Sights", meta = (ClampMin = 1, ClampMax = 50))
+	float AimDownSightsInterpSpeed = 15.0f;
+
+	/** Walk speed multiplier while aiming down sights */
+	UPROPERTY(EditAnywhere, Category ="Aim|Down Sights", meta = (ClampMin = 0.1, ClampMax = 1))
+	float AimDownSightsWalkSpeedMultiplier = 0.6f;
+
+	/** True while the aim button is held */
+	bool bWantsToAimDownSights = false;
+
+	/** True while actually aiming (button held, weapon supports it, not reloading) */
+	UPROPERTY(BlueprintReadOnly, Category ="Aim|Down Sights")
+	bool bIsAimingDownSights = false;
+
+	/** How fast the weapon dips down / comes back up while reloading */
+	UPROPERTY(EditAnywhere, Category ="Ammo|Reload", meta = (ClampMin = 1, ClampMax = 50))
+	float ReloadDipInterpSpeed = 8.0f;
+
+	/** 0..1 blend of the aim down sights weapon offset */
+	float AimDownSightsAlpha = 0.0f;
+
+	/** 0..1 blend of the procedural reload motion */
+	float ReloadAlpha = 0.0f;
+
+	/** Default placement of the arms mesh and camera, cached on BeginPlay */
+	FVector DefaultArmsRelativeLocation = FVector::ZeroVector;
+	FRotator DefaultArmsRelativeRotation = FRotator::ZeroRotator;
+
+	// --- recoil state ---
+
+	/** Camera kick still waiting to be applied (Pitch up, Yaw right) */
+	FRotator PendingRecoil = FRotator::ZeroRotator;
+
+	/** Part of the applied kick the camera will give back on its own */
+	FRotator RecoverableRecoil = FRotator::ZeroRotator;
+
+	/** Time of the last recoil kick */
+	float LastRecoilTime = -1000.0f;
+
+	/** Control pitch at the end of the last recoil update, used to detect the player pulling down */
+	float LastRecoilControlPitch = 0.0f;
+	bool bRecoilPitchTracked = false;
+
+	/** Current visual weapon kick (view space offset) and its 0..1 strength */
+	FVector WeaponKickOffset = FVector::ZeroVector;
+	float WeaponKickAlpha = 0.0f;
+
+	/** Moves the first person arms to lighting channel 1 and makes the level's lights also light channel 1,
+	 *  so muzzle flashes (channel 0 only) light the world but not the hands */
+	void SetupFirstPersonLightingChannels();
+
+	/** Applies pending camera recoil and recovery */
+	void UpdateRecoil(float DeltaSeconds);
+
+	/** Handle for the arms "bone transforms finalized" callback */
+	FDelegateHandle ArmsBonesFinalizedHandle;
+	FVector DefaultCameraRelativeLocation = FVector::ZeroVector;
+
+	/** Camera FOV and walk speed when not aiming, cached on BeginPlay */
+	float DefaultFieldOfView = 90.0f;
+	float DefaultMaxWalkSpeed = 600.0f;
 
 	/** Name of the first person mesh weapon socket */
 	UPROPERTY(EditAnywhere, Category ="Weapons")
@@ -89,6 +228,9 @@ public:
 	/** Damaged delegate */
 	FDamagedDelegate OnDamaged;
 
+	/** Aim down sights started / stopped (used by the HUD to hide the crosshair) */
+	FAimDownSightsChangedDelegate OnAimDownSightsChanged;
+
 public:
 
 	/** Constructor */
@@ -101,6 +243,17 @@ protected:
 
 	/** Gameplay cleanup */
 	virtual void EndPlay(EEndPlayReason::Type EndPlayReason) override;
+
+	/** Updates aim down sights state and camera zoom */
+	virtual void Tick(float DeltaSeconds) override;
+
+	/** Moves the arms so the sight lines up with the screen center (ADS) and dips the weapon while reloading.
+	 *  The camera is kept in place, so only the arms and weapon move on screen */
+	void UpdateFirstPersonWeaponOffset();
+
+	/** Called every frame right after the arms animation has finished, so the offsets use this frame's pose (no jitter) */
+	UFUNCTION()
+	void OnArmsBoneTransformsFinalized();
 
 	/** Set up input action bindings */
 	virtual void SetupPlayerInputComponent(UInputComponent* InputComponent) override;
@@ -136,6 +289,51 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Input")
 	void DoSwitchWeapon();
 
+	/** Handles aim down sights press */
+	UFUNCTION(BlueprintCallable, Category="Input")
+	void DoStartAimDownSights();
+
+	/** Handles aim down sights release */
+	UFUNCTION(BlueprintCallable, Category="Input")
+	void DoStopAimDownSights();
+
+	/** Handles reload input */
+	UFUNCTION(BlueprintCallable, Category="Input")
+	void DoReload();
+
+	/** Crouch key pressed */
+	UFUNCTION(BlueprintCallable, Category="Input")
+	void DoCrouchStart();
+
+	/** Crouch key released */
+	UFUNCTION(BlueprintCallable, Category="Input")
+	void DoCrouchEnd();
+
+	/** Equips the next (Direction > 0) or previous (Direction < 0) weapon */
+	UFUNCTION(BlueprintCallable, Category="Input")
+	void DoCycleWeapon(float Direction);
+
+	/** Equips a weapon in the given number slot. Pressing again cycles weapons sharing the slot */
+	UFUNCTION(BlueprintCallable, Category="Input")
+	void DoSelectWeaponSlot(int32 Slot);
+
+	/** Mouse wheel input */
+	void CycleWeaponInput(const FInputActionValue& Value);
+
+	/** Switches to the given owned weapon */
+	void EquipWeapon(AShooterWeapon* Weapon);
+
+	/** Puts the weapon away (hands only) or takes it back out */
+	UFUNCTION(BlueprintCallable, Category="Input")
+	void DoToggleHolster();
+
+	/** Puts the current weapon away, leaving empty hands */
+	void HolsterWeapon();
+
+	/** Returns true if there are weapons but none is in the hands */
+	UFUNCTION(BlueprintPure, Category="Weapons")
+	bool IsHolstered() const { return !CurrentWeapon && OwnedWeapons.Num() > 0; }
+
 public:
 
 	//~Begin IShooterWeaponHolder interface
@@ -148,6 +346,12 @@ public:
 
 	/** Applies weapon recoil to the owner */
 	virtual void AddWeaponRecoil(float Recoil) override;
+
+	/** Applies a full pattern recoil kick */
+	virtual void ApplyWeaponRecoil(const FRotator& Kick, AShooterWeapon* Weapon) override;
+
+	/** Plays a montage on the first and third person meshes */
+	virtual void PlayWeaponMontage(UAnimMontage* Montage, bool bFirstPerson, bool bThirdPerson) override;
 
 	/** Updates the weapon's HUD with the current ammo count */
 	virtual void UpdateWeaponHUD(int32 CurrentAmmo, int32 MagazineSize) override;
@@ -167,6 +371,15 @@ public:
 	/** Notifies the owner that the weapon cooldown has expired and it's ready to shoot again */
 	virtual void OnSemiWeaponRefire() override;
 
+	/** Plays the reload montage, if any */
+	virtual void OnWeaponReloadStarted(AShooterWeapon* Weapon, UAnimMontage* Montage, float Duration) override;
+
+	/** Stops the reload montage */
+	virtual void OnWeaponReloadCancelled(AShooterWeapon* Weapon, UAnimMontage* Montage) override;
+
+	/** Returns true while aiming down sights (Blueprints / AnimBP can read bIsAimingDownSights) */
+	virtual bool IsAimingDownSights() const override { return bIsAimingDownSights; }
+
 	//~End IShooterWeaponHolder interface
 
 protected:
@@ -185,6 +398,9 @@ protected:
 	void OnRespawn();
 
 public:
+
+	/** Returns the currently equipped weapon (may be null) */
+	AShooterWeapon* GetCurrentWeapon() const { return CurrentWeapon; }
 
 	/** Returns true if the character is dead */
 	bool IsDead() const;

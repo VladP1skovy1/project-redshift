@@ -13,6 +13,7 @@ class AShooterProjectile;
 class USkeletalMeshComponent;
 class UAnimMontage;
 class UAnimInstance;
+class UPointLightComponent;
 
 /**
  *  Base class for a simple first person shooter weapon
@@ -33,6 +34,10 @@ class EMPTY_API AShooterWeapon : public AActor
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	USkeletalMeshComponent* ThirdPersonMesh;
 
+	/** Short light flash at the muzzle when firing */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
+	UPointLightComponent* MuzzleFlashLight;
+
 protected:
 
 	/** Cast pointer to the weapon owner */
@@ -48,7 +53,166 @@ protected:
 
 	/** Number of bullets in the current magazine */
 	int32 CurrentBullets = 0;
-	
+
+	/** If true, the reserve never runs out (only the magazine matters) */
+	UPROPERTY(EditAnywhere, Category="Ammo|Reload")
+	bool bInfiniteReserveAmmo = true;
+
+	/** Spare bullets carried outside the magazine. Ignored if bInfiniteReserveAmmo */
+	UPROPERTY(EditAnywhere, Category="Ammo|Reload", meta = (ClampMin = 0, EditCondition = "!bInfiniteReserveAmmo"))
+	int32 MaxReserveAmmo = 90;
+
+	/** Current spare bullets */
+	int32 ReserveAmmo = 0;
+
+	/** How long a reload takes */
+	UPROPERTY(EditAnywhere, Category="Ammo|Reload", meta = (ClampMin = 0, ClampMax = 10, Units = "s"))
+	float ReloadTime = 1.5f;
+
+	/** Automatically start reloading when the magazine runs dry */
+	UPROPERTY(EditAnywhere, Category="Ammo|Reload")
+	bool bAutoReloadWhenEmpty = true;
+
+	/** Optional montage played on the character while reloading (stretched to ReloadTime). Needs a slot in the AnimBP */
+	UPROPERTY(EditAnywhere, Category="Ammo|Reload")
+	UAnimMontage* ReloadMontage = nullptr;
+
+	/** Procedural reload motion: how far the weapon dips while reloading, in view space (X forward, Y right, Z up) */
+	UPROPERTY(EditAnywhere, Category="Ammo|Reload", meta = (Units = "cm"))
+	FVector ReloadDipOffset = FVector(-5.0f, 3.0f, -20.0f);
+
+	/** True while a reload is in progress */
+	bool bIsReloading = false;
+
+	/** Timer that completes the reload */
+	FTimerHandle ReloadTimer;
+
+	/** If false, this weapon cannot aim down sights (e.g. grenade launcher) */
+	UPROPERTY(EditAnywhere, Category="Aim|Down Sights")
+	bool bCanAimDownSights = true;
+
+	/** Camera field of view while aiming down sights (lower = more zoom) */
+	UPROPERTY(EditAnywhere, Category="Aim|Down Sights", meta = (ClampMin = 5, ClampMax = 170, Units = "Degrees", EditCondition = "bCanAimDownSights"))
+	float AimDownSightsFOV = 60.0f;
+
+	/** AimVariance is multiplied by this while aiming (0 = perfect accuracy) */
+	UPROPERTY(EditAnywhere, Category="Aim|Down Sights", meta = (ClampMin = 0, ClampMax = 1, EditCondition = "bCanAimDownSights"))
+	float AimDownSightsVarianceMultiplier = 0.25f;
+
+	// ---------------- Inventory ----------------
+
+	/** Number key that selects this weapon: 1 = melee, 2 = firearms. Weapons sharing a slot are cycled by pressing the key again */
+	UPROPERTY(EditAnywhere, Category="Inventory", meta = (ClampMin = 1, ClampMax = 9))
+	int32 InventorySlot = 2;
+
+	// ---------------- Recoil ----------------
+
+	/** Fixed recoil pattern, one entry per shot in a spray: X = yaw (degrees, + right), Y = pitch (degrees, + up).
+	 *  The last entry repeats once the pattern runs out. Leave empty to use Recoil Pitch / Recoil Yaw Random instead */
+	UPROPERTY(EditAnywhere, Category="Recoil")
+	TArray<FVector2D> RecoilPattern;
+
+	/** Pitch kick per shot when no pattern is set */
+	UPROPERTY(EditAnywhere, Category="Recoil", meta = (ClampMin = 0, ClampMax = 20, Units = "Degrees"))
+	float RecoilPitch = 1.5f;
+
+	/** Random yaw kick (+/-) per shot when no pattern is set */
+	UPROPERTY(EditAnywhere, Category="Recoil", meta = (ClampMin = 0, ClampMax = 10, Units = "Degrees"))
+	float RecoilYawRandom = 0.3f;
+
+	/** If no shot is fired for this long, the pattern starts over */
+	UPROPERTY(EditAnywhere, Category="Recoil", meta = (ClampMin = 0, ClampMax = 3, Units = "s"))
+	float RecoilPatternResetTime = 0.35f;
+
+	/** How fast the camera kick is applied (higher = snappier) */
+	UPROPERTY(EditAnywhere, Category="Recoil", meta = (ClampMin = 1, ClampMax = 100))
+	float RecoilKickSpeed = 30.0f;
+
+	/** How much of the kick the camera recovers on its own after you stop shooting (0 = stays up, 1 = fully returns) */
+	UPROPERTY(EditAnywhere, Category="Recoil", meta = (ClampMin = 0, ClampMax = 1))
+	float RecoilRecoveryFraction = 0.7f;
+
+	/** Delay after the last shot before the camera starts recovering */
+	UPROPERTY(EditAnywhere, Category="Recoil", meta = (ClampMin = 0, ClampMax = 2, Units = "s"))
+	float RecoilRecoveryDelay = 0.1f;
+
+	/** Camera recovery speed */
+	UPROPERTY(EditAnywhere, Category="Recoil", meta = (ClampMin = 0, ClampMax = 200))
+	float RecoilRecoverySpeed = 12.0f;
+
+	/** Visual kick of the weapon in the hands per shot, in view space (X forward, Y right, Z up) */
+	UPROPERTY(EditAnywhere, Category="Recoil", meta = (Units = "cm"))
+	FVector WeaponKickOffset = FVector(-4.0f, 0.0f, 0.8f);
+
+	/** How fast the weapon springs back after the visual kick */
+	UPROPERTY(EditAnywhere, Category="Recoil", meta = (ClampMin = 1, ClampMax = 100))
+	float WeaponKickReturnSpeed = 18.0f;
+
+	/** Index of the next shot in the recoil pattern */
+	int32 RecoilShotIndex = 0;
+
+	/** Time of the last recoil kick, used to reset the pattern */
+	float TimeOfLastRecoil = -1000.0f;
+
+	// ---------------- Muzzle flash ----------------
+
+	/** Turn the muzzle flash light on/off */
+	UPROPERTY(EditAnywhere, Category="Muzzle Flash")
+	bool bMuzzleFlash = true;
+
+	/** Light color */
+	UPROPERTY(EditAnywhere, Category="Muzzle Flash", meta = (EditCondition = "bMuzzleFlash"))
+	FLinearColor MuzzleFlashColor = FLinearColor(1.0f, 0.65f, 0.3f);
+
+	/** Light intensity */
+	UPROPERTY(EditAnywhere, Category="Muzzle Flash", meta = (ClampMin = 0, EditCondition = "bMuzzleFlash"))
+	float MuzzleFlashIntensity = 20000.0f;
+
+	/** Light radius */
+	UPROPERTY(EditAnywhere, Category="Muzzle Flash", meta = (ClampMin = 0, Units = "cm", EditCondition = "bMuzzleFlash"))
+	float MuzzleFlashRadius = 600.0f;
+
+	/** The light is placed this far in front of the muzzle (along the shot) so it lights the world, not the hands behind the gun */
+	UPROPERTY(EditAnywhere, Category="Muzzle Flash", meta = (ClampMin = 0, ClampMax = 200, Units = "cm", EditCondition = "bMuzzleFlash"))
+	float MuzzleFlashForwardOffset = 40.0f;
+
+	/** Intensity multiplier while aiming down sights (the weapon is right in front of the camera then) */
+	UPROPERTY(EditAnywhere, Category="Muzzle Flash", meta = (ClampMin = 0, ClampMax = 1, EditCondition = "bMuzzleFlash"))
+	float MuzzleFlashAimMultiplier = 0.35f;
+
+	/** How long the flash lasts */
+	UPROPERTY(EditAnywhere, Category="Muzzle Flash", meta = (ClampMin = 0.01, ClampMax = 0.5, Units = "s", EditCondition = "bMuzzleFlash"))
+	float MuzzleFlashDuration = 0.05f;
+
+	/** Timer that turns the flash off */
+	FTimerHandle MuzzleFlashTimer;
+
+	/** Socket on the first person weapon mesh placed at the sight / optic. It gets aligned with the screen center while aiming.
+	 *  Falls back to the muzzle socket if missing */
+	UPROPERTY(EditAnywhere, Category="Aim|Down Sights", meta = (EditCondition = "bCanAimDownSights"))
+	FName SightSocketName = FName("Sight");
+
+	/** Experimental: slightly rotate the arms so the line Sight -> SightFront points exactly at the screen center.
+	 *  Needs a SightFront socket. The rotation is capped by MaxSightAlignAngle because the arms mesh is the whole body */
+	UPROPERTY(EditAnywhere, Category="Aim|Down Sights", meta = (EditCondition = "bCanAimDownSights"))
+	bool bAlignSightRotation = false;
+
+	/** Max correction angle for bAlignSightRotation */
+	UPROPERTY(EditAnywhere, Category="Aim|Down Sights", meta = (ClampMin = 0, ClampMax = 30, Units = "Degrees", EditCondition = "bCanAimDownSights && bAlignSightRotation"))
+	float MaxSightAlignAngle = 5.0f;
+
+	/** Optional socket on the front sight (the post near the muzzle). Together with the Sight socket it defines the line of sight */
+	UPROPERTY(EditAnywhere, Category="Aim|Down Sights", meta = (EditCondition = "bCanAimDownSights"))
+	FName FrontSightSocketName = FName("SightFront");
+
+	/** If > 0, also pulls the weapon towards the eye so the sight sits this far in front of the camera. 0 = only center it */
+	UPROPERTY(EditAnywhere, Category="Aim|Down Sights", meta = (ClampMin = 0, ClampMax = 100, Units = "cm", EditCondition = "bCanAimDownSights"))
+	float AimDownSightsEyeDistance = 0.0f;
+
+	/** Recoil is multiplied by this while aiming */
+	UPROPERTY(EditAnywhere, Category="Aim|Down Sights", meta = (ClampMin = 0, ClampMax = 1, EditCondition = "bCanAimDownSights"))
+	float AimDownSightsRecoilMultiplier = 0.6f;
+
 	/** Animation montage to play when firing this weapon */
 	UPROPERTY(EditAnywhere, Category="Animation")
 	UAnimMontage* FiringMontage;
@@ -142,6 +306,29 @@ public:
 	/** Stop firing this weapon */
 	void StopFiring();
 
+	/** Starts a reload if possible. Returns true if a reload was started */
+	bool StartReload();
+
+	/** Interrupts a reload in progress without refilling */
+	void CancelReload();
+
+protected:
+
+	/** Completes the reload and refills the magazine */
+	void FinishReload();
+
+	/** Calculates the recoil for this shot and sends it to the owner */
+	void ApplyRecoil();
+
+	/** Turns the muzzle flash light on for a moment, placed ahead of the muzzle towards the target */
+	void PlayMuzzleFlash(const FVector& TargetLocation);
+
+	/** Turns the muzzle flash light off */
+	void HideMuzzleFlash();
+
+	/** True if the owner is currently aiming down sights with this weapon */
+	bool IsOwnerAiming() const;
+
 protected:
 
 	/** Fire the weapon */
@@ -177,4 +364,68 @@ public:
 
 	/** Returns the current bullet count */
 	int32 GetBulletCount() const { return CurrentBullets; }
+
+	/** Returns the spare ammo count (-1 if infinite) */
+	UFUNCTION(BlueprintPure, Category="Weapon")
+	int32 GetReserveAmmo() const { return bInfiniteReserveAmmo ? -1 : ReserveAmmo; }
+
+	/** Returns true while reloading */
+	UFUNCTION(BlueprintPure, Category="Weapon")
+	bool IsReloading() const { return bIsReloading; }
+
+	/** Returns true if this weapon supports aiming down sights */
+	bool CanAimDownSights() const { return bCanAimDownSights; }
+
+	/** Returns the ADS camera FOV */
+	float GetAimDownSightsFOV() const { return AimDownSightsFOV; }
+
+	/** Returns the ADS eye distance (0 = disabled) */
+	float GetAimDownSightsEyeDistance() const { return AimDownSightsEyeDistance; }
+
+	/** Returns the procedural reload dip offset in view space */
+	const FVector& GetReloadDipOffset() const { return ReloadDipOffset; }
+
+	/** World location of the sight socket (or muzzle as fallback). Returns false if neither exists */
+	bool GetSightLocation(FVector& OutLocation) const;
+
+	/** World transform of the sight socket (or muzzle as fallback). Returns false if neither exists */
+	bool GetSightTransform(FTransform& OutTransform) const;
+
+	/** World location of the front sight socket. Returns false if the socket doesn't exist */
+	bool GetFrontSightLocation(FVector& OutLocation) const;
+
+	/** Returns true if the weapon should be rotated to line up with the view while aiming */
+	bool ShouldAlignSightRotation() const { return bAlignSightRotation; }
+
+	/** Max correction angle in degrees for the sight rotation alignment */
+	float GetMaxSightAlignAngle() const { return MaxSightAlignAngle; }
+
+	/** Extra procedural offset of the arms in view space (X forward, Y right, Z up). Used by melee swings */
+	virtual FVector GetProceduralViewOffset() const { return FVector::ZeroVector; }
+
+	/** Called by the owner every frame after the arms animation, before the arms offsets are measured.
+	 *  Lets the weapon pose itself relative to the view (melee swing direction) */
+	virtual void UpdateProceduralPose(const FVector& ViewOrigin, const FRotator& ViewRotation) {}
+
+	/** 0..1: how strongly the weapon tip should be pulled to the screen center right now (melee strike) */
+	virtual float GetStrikeAimAlpha() const { return 0.0f; }
+
+	/** World location of the weapon tip (melee). Returns false if there is none */
+	virtual bool GetStrikeTipLocation(FVector& OutLocation) const { return false; }
+
+	/** Number key slot of this weapon */
+	int32 GetInventorySlot() const { return InventorySlot; }
+
+	/** Recoil recovery settings, read by the owner */
+	float GetRecoilKickSpeed() const { return RecoilKickSpeed; }
+	float GetRecoilRecoveryFraction() const { return RecoilRecoveryFraction; }
+	float GetRecoilRecoveryDelay() const { return RecoilRecoveryDelay; }
+	float GetRecoilRecoverySpeed() const { return RecoilRecoverySpeed; }
+
+	/** Visual weapon kick settings, read by the owner */
+	const FVector& GetWeaponKickOffset() const { return WeaponKickOffset; }
+	float GetWeaponKickReturnSpeed() const { return WeaponKickReturnSpeed; }
+
+	/** Recoil multiplier while aiming down sights */
+	float GetAimDownSightsRecoilMultiplier() const { return AimDownSightsRecoilMultiplier; }
 };
