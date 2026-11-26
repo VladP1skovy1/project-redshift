@@ -8,6 +8,9 @@
 #include "EnhancedInputComponent.h"
 #include "InputActionValue.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Interaction/InteractionComponent.h"
+#include "Inventory/Components/InventoryComponent.h"
+#include "Inventory/World/WorldItemActor.h"
 #include "Empty.h"
 
 AEmptyCharacter::AEmptyCharacter()
@@ -42,6 +45,14 @@ AEmptyCharacter::AEmptyCharacter()
 	// Configure character movement
 	GetCharacterMovement()->BrakingDecelerationFalling = 1500.0f;
 	GetCharacterMovement()->AirControl = 0.5f;
+
+	// Create inventory and interaction components
+	InventoryComponent = CreateDefaultSubobject<UInventoryComponent>(TEXT("InventoryComponent"));
+	InventoryComponent->SetInventoryName(NSLOCTEXT("Inventory", "PlayerInventoryName", "Inventory"));
+
+	InteractionComponent = CreateDefaultSubobject<UInteractionComponent>(TEXT("InteractionComponent"));
+
+	WorldItemActorClass = AWorldItemActor::StaticClass();
 }
 
 void AEmptyCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -59,6 +70,12 @@ void AEmptyCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComp
 		// Looking/Aiming
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &AEmptyCharacter::LookInput);
 		EnhancedInputComponent->BindAction(MouseLookAction, ETriggerEvent::Triggered, this, &AEmptyCharacter::LookInput);
+
+		// Interacting
+		if (InteractAction)
+		{
+			EnhancedInputComponent->BindAction(InteractAction, ETriggerEvent::Started, this, &AEmptyCharacter::DoInteract);
+		}
 	}
 	else
 	{
@@ -117,4 +134,57 @@ void AEmptyCharacter::DoJumpEnd()
 {
 	// pass StopJumping to the character
 	StopJumping();
+}
+
+void AEmptyCharacter::DoInteract()
+{
+	if (InteractionComponent)
+	{
+		InteractionComponent->TryInteract();
+	}
+}
+
+AWorldItemActor* AEmptyCharacter::DropItemFromInventory(UInventoryComponent* SourceInventory, int32 SlotIndex, int32 Quantity)
+{
+	if (!SourceInventory)
+	{
+		return nullptr;
+	}
+
+	const FInventoryItem DroppedItem = SourceInventory->RemoveFromSlot(SlotIndex, Quantity);
+	if (!DroppedItem.IsValid())
+	{
+		return nullptr;
+	}
+
+	// Calculate a wall-safe drop point in front of the player's camera.
+	const FVector CameraLocation = FirstPersonCameraComponent
+		? FirstPersonCameraComponent->GetComponentLocation()
+		: GetActorLocation() + FVector(0.0f, 0.0f, BaseEyeHeight);
+	const FVector Forward = FirstPersonCameraComponent
+		? FirstPersonCameraComponent->GetForwardVector()
+		: GetActorForwardVector();
+
+	FVector SpawnLocation = CameraLocation + (Forward * DropDistance);
+
+	if (UWorld* World = GetWorld())
+	{
+		FHitResult HitResult;
+		FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(InventoryDropTrace), false, this);
+		if (World->LineTraceSingleByChannel(HitResult, CameraLocation, SpawnLocation, ECC_Visibility, QueryParams))
+		{
+			constexpr float WallPullback = 25.0f;
+			SpawnLocation = HitResult.Location - (Forward * WallPullback);
+		}
+	}
+
+	const FTransform SpawnTransform(GetActorRotation(), SpawnLocation);
+	const FVector LaunchVelocity = (Forward * DropThrowSpeed) + FVector(0.0f, 0.0f, 60.0f);
+
+	return AWorldItemActor::SpawnWorldItem(this, WorldItemActorClass, DroppedItem, SpawnTransform, LaunchVelocity);
+}
+
+AWorldItemActor* AEmptyCharacter::DropItemFromSlot(int32 SlotIndex, int32 Quantity)
+{
+	return DropItemFromInventory(InventoryComponent, SlotIndex, Quantity);
 }
